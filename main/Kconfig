@@ -1,0 +1,230 @@
+menu "AS6031 / Flow Meter"
+
+    config AS6031_INTERNAL_TOTALIZER
+        bool "Usar totalizador interno do AS6031"
+        default y
+        help
+            Quando habilitado, o node tenta ler o volume acumulado no AS6031 via RAA
+            e acorda 1x/dia por timer para transmitir.
+
+    config AS6031_RAM_FLOW_VOLUME_INT_ADDR
+        hex "RAA addr: RAM_R_FLOW_VOLUME_INT (DWORD)"
+        default 0xFFFF
+        depends on AS6031_INTERNAL_TOTALIZER
+        help
+            Endereco RAA (DWORD) da parte inteira do volume acumulado.
+            O datasheet publico cita o nome mas nao fornece o endereco.
+            Defina aqui quando descobrir o offset.
+
+    config AS6031_RAM_FLOW_VOLUME_FRACTION_ADDR
+        hex "RAA addr: RAM_R_FLOW_VOLUME_FRACTION (DWORD)"
+        default 0xFFFF
+        depends on AS6031_INTERNAL_TOTALIZER
+        help
+            Endereco RAA (DWORD) da parte fracionaria (fd32) do volume acumulado.
+
+    config AS6031_VOLUME_INT_IS_MILLILITERS
+        bool "Interpretar FLOW_VOLUME_INT como mL (u32)"
+        default y
+        depends on AS6031_INTERNAL_TOTALIZER
+        help
+            Alguns mapas de firmware reportam a parte inteira do totalizador como
+            contador direto em mililitros. Quando habilitado, o firmware converte
+            FLOW_VOLUME_INT para litros usando int/1000 e ignora a parte fracionaria.
+
+    config AS6031_TOTALIZER_COUNTER_DECREASING
+        bool "Contador interno decrescente"
+        default y
+        depends on AS6031_INTERNAL_TOTALIZER
+        help
+            Quando habilitado, o consumo diario e derivado como -(raw_atual - raw_anterior).
+            Use quando o totalizador interno diminuir com o fluxo no mapa ativo.
+
+    config AS6031_VALIDATE_MODE
+        bool "Validacao: ler total e calcular L/min"
+        default n
+        depends on AS6031_INTERNAL_TOTALIZER
+        help
+            Quando habilitado (e com enderecos definidos), o node entra em um loop que
+            le o totalizador periodicamente e imprime a taxa aproximada (L/min).
+
+    config AS6031_VALIDATE_INTERVAL_MS
+        int "Validacao: intervalo entre leituras (ms)"
+        range 200 60000
+        default 1000
+        depends on AS6031_VALIDATE_MODE
+
+    config AS6031_VALIDATE_NO_FLOW_THRESHOLD_MLPM
+        int "Validacao: limiar de sem fluxo (mL/min)"
+        range 1 100000
+        default 100
+        depends on AS6031_VALIDATE_MODE
+        help
+            Taxas absolutas abaixo desse limiar sao exibidas como 0 L/min
+            para reduzir falsos positivos por jitter de leitura.
+
+    config AS6031_VALIDATE_NEGATIVE_GLITCH_ML
+        int "Validacao: tolerancia de glitch negativo (mL)"
+        range 0 10000
+        default 2
+        depends on AS6031_VALIDATE_MODE
+        help
+            Pequenos deltas negativos (em modulo) sao tratados como 0 para
+            compensar leituras inconsistentes entre parte inteira/fracionaria.
+
+    config AS6031_MAINTENANCE_MODE
+        bool "Manutencao: diagnostico continuo (sem sleep/sem TX)"
+        default n
+        depends on AS6031_INTERNAL_TOTALIZER
+        help
+            Mantem o node acordado e imprime informacoes de firmware, total e taxa.
+            Nao entra em deep sleep e nao transmite.
+
+    config AS6031_MAINTENANCE_INTERVAL_MS
+        int "Manutencao: intervalo (ms)"
+        range 200 60000
+        default 1000
+        depends on AS6031_MAINTENANCE_MODE
+
+    config AS6031_MAX_DAILY_DELTA_LITERS
+        int "Sanidade: delta maximo por dia (L)"
+        range 1 1000000
+        default 5000
+        depends on AS6031_INTERNAL_TOTALIZER
+        help
+            Limite de sanidade para detectar endereco errado ou leitura corrompida.
+            Se o total aumentar acima desse valor em um ciclo diario, marca anomalia.
+
+    config AS6031_DAILY_WAKEUP_SECONDS
+        int "Wakeup por timer no modo totalizador interno (segundos)"
+        range 10 604800
+        default 86400
+        depends on AS6031_INTERNAL_TOTALIZER
+        help
+            Intervalo de wakeup por timer quando o node opera em Flow Meter Mode.
+            Use valores baixos em bancada para validar contagem sem power-cycle.
+            Em producao, use 86400 (1 dia).
+
+    config AS6031_DISCOVERY_MODE
+        bool "Discovery: varrer RAA para achar enderecos"
+        default n
+        depends on AS6031_INTERNAL_TOTALIZER
+        help
+            Quando os enderecos do totalizador estao indefinidos (0xFFFF), o firmware
+            pode entrar automaticamente em um modo de varredura para sugerir candidatos.
+
+    config AS6031_FORCE_SYS_INIT_ON_BOOT
+        bool "Forcar RC_SYS_INIT no boot (modo totalizador interno)"
+        default n
+        depends on AS6031_INTERNAL_TOTALIZER
+        help
+            Envia RC_SYS_INIT (0x9A) ao iniciar para forcar a sequencia de boot do AS6031
+            antes de habilitar MCT. Use para recuperacao em campo quando a leitura de
+            firmware retorna 0xFFFFFFFF com frequencia.
+
+    config AS6031_DISCOVERY_INTERVAL_MS
+        int "Discovery: intervalo entre snapshots (ms)"
+        range 100 60000
+        default 5000
+        depends on AS6031_DISCOVERY_MODE
+
+    config AS6031_DISCOVERY_SAMPLES
+        int "Discovery: numero de snapshots (N)"
+        range 2 20
+        default 2
+        depends on AS6031_DISCOVERY_MODE
+        help
+            Numero de snapshots coletados antes de ranquear candidatos.
+            N=2 reproduz o comportamento simples (antes/depois).
+
+    config AS6031_DISCOVERY_TOPK
+        int "Discovery: top K candidatos por faixa"
+        range 1 100
+        default 20
+        depends on AS6031_DISCOVERY_MODE
+        help
+            Limita quantos candidatos (enderecos e pares 32.32) serao impressos.
+
+    config AS6031_DISCOVERY_REPEAT_COUNT
+        int "Discovery: repeticoes (0 = 1 rodada)"
+        range 0 1000
+        default 0
+        depends on AS6031_DISCOVERY_MODE
+        help
+            Quantas rodadas de discovery executar quando os enderecos estiverem indefinidos.
+            Em 0, executa 1 rodada (nao bloqueante) e segue para o fluxo normal.
+
+    config AS6031_COMMISSIONING_TOF_MODE
+        bool "Comissionamento: modo TOF continuo (Caminho B)"
+        default n
+        help
+            Modo de bancada para validar leitura de TOF e vazao em tempo real,
+            semelhante ao sketch Arduino. Nao entra em deep sleep e nao transmite.
+            Para producao (deep sleep 1x/dia + ESP-NOW), mantenha desabilitado.
+
+    config AS6031_COMMISSIONING_INTERVAL_MS
+        int "Comissionamento: intervalo de amostragem (ms)"
+        range 100 5000
+        default 500
+        depends on AS6031_COMMISSIONING_TOF_MODE
+
+    config AS6031_COMMISSIONING_FLOW_THRESHOLD_MLPS
+        int "Comissionamento: limiar minimo de fluxo (mL/s)"
+        range 1 1000
+        default 20
+        depends on AS6031_COMMISSIONING_TOF_MODE
+        help
+            Fluxos absolutos abaixo desse limiar sao tratados como zero para reduzir ruido.
+
+    config AS6031_DISCOVERY_INCLUDE_NVRAM
+        bool "Discovery: incluir NVRAM (0x100..0x1FF)"
+        default n
+        depends on AS6031_DISCOVERY_MODE
+        help
+            Alguns firmwares podem persistir parte do totalizador em NVRAM.
+            Habilite para varrer essa faixa alem da RAM.
+
+endmenu
+
+menu "ESP-NOW Test Module"
+
+    config ESPNOW_TEST_MODE
+        bool "Habilitar modo teste dedicado ESP-NOW"
+        default n
+        help
+            Quando habilitado, o firmware ignora o fluxo normal do hidrômetro
+            e executa somente o módulo de teste ESP-NOW para validar comunicação
+            entre placas.
+
+    choice ESPNOW_TEST_ROLE
+        prompt "Papel no teste ESP-NOW"
+        default ESPNOW_TEST_ROLE_TX
+        depends on ESPNOW_TEST_MODE
+
+        config ESPNOW_TEST_ROLE_TX
+            bool "TX (envia ping e espera ACK)"
+
+        config ESPNOW_TEST_ROLE_RX
+            bool "RX (recebe ping e responde ACK)"
+    endchoice
+
+    config ESPNOW_TEST_CHANNEL
+        int "Canal Wi-Fi usado no ESP-NOW"
+        range 1 13
+        default 1
+        depends on ESPNOW_TEST_MODE
+
+    config ESPNOW_TEST_SEND_INTERVAL_MS
+        int "Intervalo de envio no TX (ms)"
+        range 100 60000
+        default 1000
+        depends on ESPNOW_TEST_MODE && ESPNOW_TEST_ROLE_TX
+
+    config ESPNOW_TEST_PEER_MAC
+        string "MAC do peer (formato AA:BB:CC:DD:EE:FF)"
+        default "24:6F:28:00:00:01"
+        depends on ESPNOW_TEST_MODE && ESPNOW_TEST_ROLE_TX
+        help
+            MAC da placa RX que respondera aos pings.
+
+endmenu

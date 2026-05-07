@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "driver/i2c_master.h"
+#include "driver/gpio.h"
 #include "esp_lcd_panel_io.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_panel_vendor.h"
@@ -318,6 +319,12 @@ static esp_err_t oled_init(void)
     if (s_oled.available) {
         return ESP_OK;
     }
+
+    /* Ativa o Vext da placa (Heltec LoRa32 v2) para ligar o OLED */
+    gpio_reset_pin(21);
+    gpio_set_direction(21, GPIO_MODE_OUTPUT);
+    gpio_set_level(21, 0); /* LOW = Liga Vext */
+    vTaskDelay(pdMS_TO_TICKS(50)); /* Tempo p/ estabilizar a tensão */
 
     s_oled.flush_done_sem = xSemaphoreCreateBinary();
     if (s_oled.flush_done_sem == NULL) {

@@ -30,6 +30,8 @@ typedef struct {
     uint32_t bandwidth_hz;
     uint8_t spreading_factor;
     int8_t tx_power_dbm;
+    uint8_t coding_rate;  /* 1=4/5  2=4/6  3=4/7  4=4/8 (default: 1) */
+    uint8_t preamble_len; /* simbolos; 0 => usa default 8 */
 } sx1276_lora_config_t;
 
 typedef struct {

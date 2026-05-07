@@ -309,14 +309,30 @@ menu "LoRa Test Module"
     config LORA_TEST_SPREADING_FACTOR
         int "Spreading factor"
         range 7 12
-        default 7
+        default 12
         depends on LORA_TEST_MODE
 
     config LORA_TEST_TX_POWER_DBM
         int "Potencia TX (dBm)"
         range 2 20
-        default 10
+        default 20
         depends on LORA_TEST_MODE
+
+    config LORA_TEST_CODING_RATE
+        int "Coding rate (1=4/5  2=4/6  3=4/7  4=4/8)"
+        range 1 4
+        default 4
+        depends on LORA_TEST_MODE
+        help
+            Maior valor = maior redundancia = maior alcance, menor throughput.
+
+    config LORA_TEST_PREAMBLE_LEN
+        int "Comprimento do preambulo (simbolos)"
+        range 6 255
+        default 12
+        depends on LORA_TEST_MODE
+        help
+            Preambulo maior melhora a deteccao do sinal em links fracos.
 
     config LORA_TEST_NODE_SEND_INTERVAL_MS
         int "Intervalo base de envio do NODE (ms)"

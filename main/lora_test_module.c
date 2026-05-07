@@ -19,8 +19,21 @@
 
 #include "sx1276_lora.h"
 
-#define LORA_TEST_ACK_TIMEOUT_MS 1200
-#define LORA_TEST_TX_DONE_TIMEOUT_MS 1000
+/* TX time-on-air upper bound with 2x safety margin (BW=125 kHz) */
+#if CONFIG_LORA_TEST_SPREADING_FACTOR >= 12
+#define LORA_TEST_TX_DONE_TIMEOUT_MS 14000U
+#elif CONFIG_LORA_TEST_SPREADING_FACTOR >= 11
+#define LORA_TEST_TX_DONE_TIMEOUT_MS 7000U
+#elif CONFIG_LORA_TEST_SPREADING_FACTOR >= 10
+#define LORA_TEST_TX_DONE_TIMEOUT_MS 3600U
+#elif CONFIG_LORA_TEST_SPREADING_FACTOR >= 9
+#define LORA_TEST_TX_DONE_TIMEOUT_MS 1800U
+#elif CONFIG_LORA_TEST_SPREADING_FACTOR >= 8
+#define LORA_TEST_TX_DONE_TIMEOUT_MS 1000U
+#else
+#define LORA_TEST_TX_DONE_TIMEOUT_MS  600U
+#endif
+#define LORA_TEST_ACK_TIMEOUT_MS (LORA_TEST_TX_DONE_TIMEOUT_MS + 2000U)
 #define LORA_TEST_MAX_NODES 32
 #define LORA_TEST_OLED_CMD_BITS 8
 #define LORA_TEST_OLED_PARAM_BITS 8
@@ -656,11 +669,13 @@ static void log_config_banner(const uint8_t self_mac[6])
     ESP_LOGW(TAG, "MODO TESTE LORA ATIVO");
     ESP_LOGW(TAG, "Role: %s", CONFIG_LORA_TEST_ROLE_ROOT ? "ROOT" : "NODE");
     ESP_LOGW(TAG, "MAC local: %s", mac_buffer);
-    ESP_LOGW(TAG, "Freq=%u MHz BW=%u kHz SF=%u TX=%d dBm",
+    ESP_LOGW(TAG, "Freq=%u MHz BW=%u kHz SF=%u TX=%d dBm CR=4/%u Preambulo=%u",
              (unsigned)CONFIG_LORA_TEST_FREQUENCY_MHZ,
              (unsigned)CONFIG_LORA_TEST_BANDWIDTH_KHZ,
              (unsigned)CONFIG_LORA_TEST_SPREADING_FACTOR,
-             (int)CONFIG_LORA_TEST_TX_POWER_DBM);
+             (int)CONFIG_LORA_TEST_TX_POWER_DBM,
+             (unsigned)(CONFIG_LORA_TEST_CODING_RATE + 4U),
+             (unsigned)CONFIG_LORA_TEST_PREAMBLE_LEN);
     ESP_LOGW(TAG, "Pinos SX1276 CLK=%d MISO=%d MOSI=%d CS=%d RST=%d DIO0=%d",
              LORA_TEST_PIN_SCK, LORA_TEST_PIN_MISO, LORA_TEST_PIN_MOSI,
              LORA_TEST_PIN_CS, LORA_TEST_PIN_RST, LORA_TEST_PIN_DIO0);
@@ -709,6 +724,8 @@ static esp_err_t init_lora_radio(void)
         .bandwidth_hz = LORA_TEST_BANDWIDTH_HZ,
         .spreading_factor = CONFIG_LORA_TEST_SPREADING_FACTOR,
         .tx_power_dbm = CONFIG_LORA_TEST_TX_POWER_DBM,
+        .coding_rate  = CONFIG_LORA_TEST_CODING_RATE,
+        .preamble_len = CONFIG_LORA_TEST_PREAMBLE_LEN,
     };
 
     esp_err_t err = sx1276_lora_init(&config);
@@ -829,6 +846,10 @@ static void __attribute__((unused)) run_root(const uint8_t self_mac[6])
                      (unsigned long)probe.seq,
                      (int)ack.probe_rssi_dbm,
                      (int)ack.probe_snr_db);
+            /* Aguarda 500 ms antes de voltar ao RX para evitar que o proprio
+             * sinal de TX do ACK interfira no proximo PROBE recebido. */
+            vTaskDelay(pdMS_TO_TICKS(500));
+            sx1276_lora_flush_events();
         } else {
             ESP_LOGW(TAG, "ROOT: timeout aguardando TX_DONE do ACK para %s", mac_buffer);
             if (node != NULL) {

@@ -90,6 +90,8 @@ typedef struct {
     uint32_t bandwidth_hz;
     uint8_t spreading_factor;
     int8_t tx_power_dbm;
+    uint8_t coding_rate;  /* 1=4/5  2=4/6  3=4/7  4=4/8 */
+    uint8_t preamble_len; /* simbolos */
 } sx1276_lora_context_t;
 
 static const char *TAG = "SX1276";
@@ -231,10 +233,12 @@ static esp_err_t sx1276_apply_modem_config_locked(void)
     uint32_t actual_bandwidth_hz = sx1276_closest_bandwidth_hz(s_ctx.bandwidth_hz, &bandwidth_reg);
     uint16_t symbol_timeout = 0x64U;
     bool low_data_rate_optimize = (actual_bandwidth_hz <= 125000UL) && (s_ctx.spreading_factor >= 11U);
-    uint8_t modem_config1 = (uint8_t)((bandwidth_reg << 4U) | (1U << 1U));
+    /* CodingRate bits [3:1]: 1=4/5, 2=4/6, 3=4/7, 4=4/8 */
+    uint8_t modem_config1 = (uint8_t)((bandwidth_reg << 4U) | (s_ctx.coding_rate << 1U));
     uint8_t modem_config2 = (uint8_t)((s_ctx.spreading_factor << 4U) | (1U << 2U) |
                                       ((symbol_timeout >> 8U) & 0x03U));
-    uint8_t modem_config3 = (uint8_t)((low_data_rate_optimize ? 0x08U : 0x00U) | 0x04U);
+    /* AGC desabilitado: LNA controlado manualmente em G1+boost (0x23) */
+    uint8_t modem_config3 = (uint8_t)(low_data_rate_optimize ? 0x08U : 0x00U);
 
     s_ctx.bandwidth_hz = actual_bandwidth_hz;
 
@@ -418,6 +422,8 @@ esp_err_t sx1276_lora_init(const sx1276_lora_config_t *config)
     s_ctx.bandwidth_hz = config->bandwidth_hz;
     s_ctx.spreading_factor = config->spreading_factor;
     s_ctx.tx_power_dbm = config->tx_power_dbm;
+    s_ctx.coding_rate  = (config->coding_rate >= 1U && config->coding_rate <= 4U) ? config->coding_rate : 1U;
+    s_ctx.preamble_len = (config->preamble_len > 0U) ? config->preamble_len : 8U;
 
     s_ctx.spi_mutex = xSemaphoreCreateMutex();
     if (s_ctx.spi_mutex == NULL) {
@@ -522,7 +528,7 @@ esp_err_t sx1276_lora_init(const sx1276_lora_config_t *config)
         err = sx1276_write_reg_locked(SX1276_REG_PREAMBLE_MSB, 0x00U);
     }
     if (err == ESP_OK) {
-        err = sx1276_write_reg_locked(SX1276_REG_PREAMBLE_LSB, 0x08U);
+        err = sx1276_write_reg_locked(SX1276_REG_PREAMBLE_LSB, s_ctx.preamble_len);
     }
     if (err == ESP_OK) {
         err = sx1276_write_reg_locked(SX1276_REG_PAYLOAD_MAX_LENGTH, SX1276_LORA_MAX_PAYLOAD_LEN);

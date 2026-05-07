@@ -228,3 +228,114 @@ menu "ESP-NOW Test Module"
             MAC da placa RX que respondera aos pings.
 
 endmenu
+
+menu "LoRa Test Module"
+
+    config LORA_TEST_MODE
+        bool "Habilitar modo teste dedicado LoRa"
+        default n
+        help
+            Quando habilitado, o firmware ignora o fluxo normal do hidrômetro
+            e executa somente o módulo de teste LoRa para validacao de alcance
+            em topologia ROOT/NODE com SX1276.
+
+    choice LORA_TEST_ROLE
+        prompt "Papel no teste LoRa"
+        default LORA_TEST_ROLE_ROOT
+        depends on LORA_TEST_MODE
+
+        config LORA_TEST_ROLE_ROOT
+            bool "ROOT (RX continuo, agrega estatisticas e responde ACK)"
+
+        config LORA_TEST_ROLE_NODE
+            bool "NODE (envia PROBE periodico e aguarda ACK)"
+    endchoice
+
+    config LORA_TEST_FREQUENCY_MHZ
+        int "Frequencia LoRa (MHz)"
+        range 137 1020
+        default 915
+        depends on LORA_TEST_MODE
+
+    choice LORA_TEST_BANDWIDTH_PROFILE
+        prompt "Bandwidth LoRa"
+        default LORA_TEST_BW_125
+        depends on LORA_TEST_MODE
+
+        config LORA_TEST_BW_7_8
+            bool "7.8 kHz"
+
+        config LORA_TEST_BW_10_4
+            bool "10.4 kHz"
+
+        config LORA_TEST_BW_15_6
+            bool "15.6 kHz"
+
+        config LORA_TEST_BW_20_8
+            bool "20.8 kHz"
+
+        config LORA_TEST_BW_31_25
+            bool "31.25 kHz"
+
+        config LORA_TEST_BW_41_7
+            bool "41.7 kHz"
+
+        config LORA_TEST_BW_62_5
+            bool "62.5 kHz"
+
+        config LORA_TEST_BW_125
+            bool "125 kHz"
+
+        config LORA_TEST_BW_250
+            bool "250 kHz"
+
+        config LORA_TEST_BW_500
+            bool "500 kHz"
+    endchoice
+
+    config LORA_TEST_BANDWIDTH_KHZ
+        int
+        default 8 if LORA_TEST_BW_7_8
+        default 10 if LORA_TEST_BW_10_4
+        default 15 if LORA_TEST_BW_15_6
+        default 20 if LORA_TEST_BW_20_8
+        default 31 if LORA_TEST_BW_31_25
+        default 41 if LORA_TEST_BW_41_7
+        default 62 if LORA_TEST_BW_62_5
+        default 125 if LORA_TEST_BW_125
+        default 250 if LORA_TEST_BW_250
+        default 500 if LORA_TEST_BW_500
+
+    config LORA_TEST_SPREADING_FACTOR
+        int "Spreading factor"
+        range 7 12
+        default 7
+        depends on LORA_TEST_MODE
+
+    config LORA_TEST_TX_POWER_DBM
+        int "Potencia TX (dBm)"
+        range 2 20
+        default 10
+        depends on LORA_TEST_MODE
+
+    config LORA_TEST_NODE_SEND_INTERVAL_MS
+        int "Intervalo base de envio do NODE (ms)"
+        range 100 600000
+        default 2000
+        depends on LORA_TEST_MODE && LORA_TEST_ROLE_NODE
+
+    config LORA_TEST_NODE_SEND_JITTER_MS
+        int "Jitter aleatorio do NODE (ms)"
+        range 0 60000
+        default 250
+        depends on LORA_TEST_MODE && LORA_TEST_ROLE_NODE
+        help
+            Offset aleatorio somado/subtraido do intervalo base para reduzir colisao.
+
+    config LORA_TEST_ROOT_SUMMARY_INTERVAL_MS
+        int "Intervalo do resumo do ROOT (ms)"
+        range 1000 600000
+        default 10000
+        depends on LORA_TEST_MODE && LORA_TEST_ROLE_ROOT
+
+endmenu

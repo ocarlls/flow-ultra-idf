@@ -22,6 +22,7 @@
 
 #include "as6031_remote.h"
 #include "espnow_test_module.h"
+#include "lora_test_module.h"
 
 #include "sdkconfig.h"
 
@@ -1513,6 +1514,11 @@ void app_main(void) {
 
 #if AS6031_DISCOVERY_MODE
     as6031_discovery_log_persisted_summary();
+#endif
+
+#if CONFIG_LORA_TEST_MODE
+    lora_test_run();
+    return;
 #endif
 
 #if CONFIG_ESPNOW_TEST_MODE

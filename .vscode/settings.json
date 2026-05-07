@@ -3,10 +3,10 @@
   "idf.openOcdConfigs": [
     "board/esp32-bridge.cfg"
   ],
-  "idf.port": "/dev/tty.usbserial-11110",
+  "idf.port": "/dev/tty.usbserial-0001",
   "idf.currentSetup": "/Users/carlos/esp/v5.5.1/esp-idf",
   "idf.customExtraVars": {
-    "IDF_TARGET": "esp32c6"
+    "IDF_TARGET": "esp32"
   },
   "clangd.path": "/Users/carlos/.espressif/tools/esp-clang/esp-19.1.2_20250312/esp-clang/bin/clangd",
   "clangd.arguments": [
@@ -14,5 +14,6 @@
     "--query-driver=**",
     "--compile-commands-dir=/Users/carlos/flow-ultra/build"
   ],
-  "idf.flashType": "UART"
+  "idf.flashType": "UART",
+  "idf.enableSizeTaskAfterBuildTask": false
 }

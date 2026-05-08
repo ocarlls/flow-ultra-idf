@@ -186,6 +186,36 @@ menu "AS6031 / Flow Meter"
 
 endmenu
 
+menu "Flow Mesh Network"
+
+    config FLOW_MESH_MODE
+        bool "Habilitar rede mesh (ESP-NOW + LoRa)"
+        default n
+        help
+            Ativa o firmware dedicado de mesh em dois protocolos:
+            - ESP-NOW (hidrômetros/METER -> SUBROOT)
+            - LoRa (SUBROOT -> ... -> ROOT)
+
+            Observacao: este modo e exclusivo e deve ser usado com
+            LORA_TEST_MODE e ESPNOW_TEST_MODE desabilitados.
+
+    choice FLOW_ROLE
+        prompt "Papel na rede mesh"
+        default FLOW_ROLE_ROOT
+        depends on FLOW_MESH_MODE
+
+        config FLOW_ROLE_METER
+            bool "METER (ESP32-C6, somente ESP-NOW)"
+
+        config FLOW_ROLE_SUBROOT
+            bool "SUBROOT (Heltec LoRa32 v2, ESP-NOW + LoRa)"
+
+        config FLOW_ROLE_ROOT
+            bool "ROOT (Heltec LoRa32 v2, agrega e loga)"
+    endchoice
+
+endmenu
+
 menu "ESP-NOW Test Module"
 
     config ESPNOW_TEST_MODE

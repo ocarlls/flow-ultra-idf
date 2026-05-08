@@ -24,6 +24,10 @@
 #include "espnow_test_module.h"
 #include "lora_test_module.h"
 
+#include "meter_node.h"
+#include "root_node.h"
+#include "subroot_node.h"
+
 #include "sdkconfig.h"
 
 // --- Configurações de Hardware ---
@@ -641,7 +645,7 @@ done:
     free(snaps);
 }
 
-static void as6031_discovery_scan(spi_device_handle_t dev)
+static void __attribute__((unused)) as6031_discovery_scan(spi_device_handle_t dev)
 {
     as6031_discovery_scan_range(dev, AS6031_DISCOVERY_RAM_START, AS6031_DISCOVERY_RAM_END, "RAM");
 #if AS6031_DISCOVERY_INCLUDE_NVRAM
@@ -842,7 +846,7 @@ static esp_mqtt_client_handle_t g_mqtt_client = NULL;
 #endif
 
 #if SOC_PM_SUPPORT_EXT0_WAKEUP
-static bool is_rtc_gpio(gpio_num_t gpio)
+static bool __attribute__((unused)) is_rtc_gpio(gpio_num_t gpio)
 {
     return rtc_gpio_is_valid_gpio(gpio);
 }
@@ -1524,6 +1528,22 @@ void app_main(void) {
 #if CONFIG_ESPNOW_TEST_MODE
     espnow_test_run();
     return;
+#endif
+
+#if CONFIG_FLOW_MESH_MODE
+#if CONFIG_FLOW_ROLE_METER
+    meter_node_run();
+    return;
+#elif CONFIG_FLOW_ROLE_SUBROOT
+    subroot_node_run();
+    return;
+#elif CONFIG_FLOW_ROLE_ROOT
+    root_node_run();
+    return;
+#else
+    ESP_LOGE(TAG, "FLOW_MESH_MODE habilitado sem role selecionado");
+    return;
+#endif
 #endif
 
 #if AS6031_COMMISSIONING_TOF_MODE

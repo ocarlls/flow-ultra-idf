@@ -123,15 +123,19 @@ void root_node_run(void)
         sx1276_lora_event_t event = {0};
         esp_err_t err = sx1276_lora_receive_event(&event, pdMS_TO_TICKS(200));
         if (err == ESP_ERR_TIMEOUT) {
+            vTaskDelay(pdMS_TO_TICKS(10));
             continue;
         }
         if (err != ESP_OK) {
+            vTaskDelay(pdMS_TO_TICKS(10));
             continue;
         }
         if (event.type != SX1276_LORA_EVENT_RX_DONE) {
+            vTaskDelay(pdMS_TO_TICKS(10));
             continue;
         }
         if (event.payload_len != sizeof(flow_packet_t)) {
+            vTaskDelay(pdMS_TO_TICKS(10));
             continue;
         }
 
@@ -139,20 +143,24 @@ void root_node_run(void)
         memcpy(&pkt, event.payload, sizeof(pkt));
 
         if (!flow_packet_header_ok(&pkt)) {
+            vTaskDelay(pdMS_TO_TICKS(10));
             continue;
         }
 
         const bool crc_ok = flow_packet_validate_crc32(&pkt);
         if (!crc_ok) {
+            vTaskDelay(pdMS_TO_TICKS(10));
             continue;
         }
 
         if (pkt.type != FLOW_PKT_TYPE_METER_DATA) {
+            vTaskDelay(pdMS_TO_TICKS(10));
             continue;
         }
 
         const int64_t now_ms = esp_timer_get_time() / 1000LL;
         if (mesh_dedup_is_duplicate(&s_dedup, pkt.meter_id, pkt.sequence, pkt.type, now_ms)) {
+            vTaskDelay(pdMS_TO_TICKS(10));
             continue;
         }
 

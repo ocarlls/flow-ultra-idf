@@ -15,5 +15,15 @@
     "--compile-commands-dir=/Users/carlos/flow-ultra/build"
   ],
   "idf.flashType": "UART",
-  "idf.enableSizeTaskAfterBuildTask": false
+  "idf.enableSizeTaskAfterBuildTask": false,
+  "cmake.configureOnOpen": false,
+  "cmake.automaticReconfigure": false,
+  "cmake.autoSelectActiveFolder": false,
+  "terminal.integrated.defaultProfile.osx": "zsh",
+  "terminal.integrated.profiles.osx": {
+    "zsh": {
+      "path": "/bin/zsh",
+      "args": ["-l"]
+    }
+  }
 }

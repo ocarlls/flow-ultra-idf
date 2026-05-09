@@ -1,5 +1,6 @@
 #include "subroot_node.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #include "esp_check.h"
@@ -28,6 +29,7 @@ static const uint8_t s_broadcast_mac[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
 static uint8_t s_self_mac[6] = {0};
 static mesh_dedup_table_t s_dedup = {0};
+static uint32_t s_probe_sequence = 0;
 
 static QueueHandle_t s_lora_tx_queue = NULL;
 
@@ -45,6 +47,12 @@ static int8_t clamp_i16_to_i8(int16_t value)
         return -128;
     }
     return (int8_t)value;
+}
+
+static void mac_to_str(const uint8_t mac[6], char *buffer, size_t buffer_len)
+{
+    snprintf(buffer, buffer_len, "%02X:%02X:%02X:%02X:%02X:%02X",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 }
 
 static esp_err_t init_wifi_espnow(void);
@@ -95,6 +103,10 @@ static void on_espnow_recv(const esp_now_recv_info_t *recv_info, const uint8_t *
     pkt.hop_count++;
 
     flow_packet_update_crc32(&pkt);
+    ESP_LOGI(TAG,
+             "ENCAMINHANDO ESPNOW->LoRa seq=%lu espnow_rssi=%d",
+             (unsigned long)pkt.sequence,
+             (int)pkt.espnow_rssi);
     enqueue_lora_tx(&pkt);
 }
 
@@ -111,6 +123,46 @@ static void lora_tx_task(void *arg)
         (void)sx1276_lora_transmit((const uint8_t *)&pkt, sizeof(pkt));
     }
 }
+
+#if CONFIG_FLOW_SUBROOT_SELF_TEST
+static void subroot_probe_task(void *arg)
+{
+    (void)arg;
+
+    char self_mac_str[18] = {0};
+    mac_to_str(s_self_mac, self_mac_str, sizeof(self_mac_str));
+
+    while (1) {
+        flow_packet_t pkt;
+        flow_packet_init_empty(&pkt);
+
+        pkt.type = FLOW_PKT_TYPE_METER_DATA;
+        pkt.sequence = ++s_probe_sequence;
+        memcpy(pkt.meter_id, s_self_mac, sizeof(pkt.meter_id));
+        memcpy(pkt.subroot_mac, s_self_mac, sizeof(pkt.subroot_mac));
+        pkt.volume_liters = (uint32_t)CONFIG_FLOW_SUBROOT_SELF_TEST_VOLUME_LITERS;
+        pkt.delta_liters = (uint32_t)CONFIG_FLOW_SUBROOT_SELF_TEST_DELTA_LITERS;
+        pkt.timestamp_ms = esp_timer_get_time() / 1000LL;
+        pkt.battery_pct = 100;
+        pkt.hop_count = 1;
+        pkt.espnow_rssi = INT8_MIN;
+        pkt.lora_rssi = INT8_MIN;
+        pkt.lora_snr = INT8_MIN;
+
+        flow_packet_update_crc32(&pkt);
+
+        ESP_LOGI(TAG,
+                 "TX SONDA SUBROOT->ROOT meter=%s seq=%lu vol=%luL delta=%luL",
+                 self_mac_str,
+                 (unsigned long)pkt.sequence,
+                 (unsigned long)pkt.volume_liters,
+                 (unsigned long)pkt.delta_liters);
+        enqueue_lora_tx(&pkt);
+
+        vTaskDelay(pdMS_TO_TICKS(CONFIG_FLOW_SUBROOT_SELF_TEST_INTERVAL_MS));
+    }
+}
+#endif
 
 static void maybe_forward_lora_meter_data(const sx1276_lora_event_t *event, const flow_packet_t *rx_pkt)
 {
@@ -314,6 +366,10 @@ void subroot_node_run(void)
 
     xTaskCreate(lora_tx_task, "flow_lora_tx", 4096, NULL, 8, NULL);
     xTaskCreate(lora_rx_task, "flow_lora_rx", 4096, NULL, 8, NULL);
+
+#if CONFIG_FLOW_SUBROOT_SELF_TEST
+    xTaskCreate(subroot_probe_task, "flow_probe_tx", 4096, NULL, 6, NULL);
+#endif
 
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(10000));

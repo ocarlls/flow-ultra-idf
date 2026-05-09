@@ -214,6 +214,32 @@ menu "Flow Mesh Network"
             bool "ROOT (Heltec LoRa32 v2, agrega e loga)"
     endchoice
 
+    config FLOW_SUBROOT_SELF_TEST
+        bool "SUBROOT: gerar sonda LoRa periodica"
+        default n
+        depends on FLOW_MESH_MODE && FLOW_ROLE_SUBROOT
+        help
+            Injeta um pacote sintetico METER_DATA diretamente no enlace LoRa para
+            validar a camada SUBROOT -> ROOT sem depender de um METER via ESP-NOW.
+
+    config FLOW_SUBROOT_SELF_TEST_INTERVAL_MS
+        int "SUBROOT: intervalo da sonda LoRa (ms)"
+        range 1000 60000
+        default 5000
+        depends on FLOW_SUBROOT_SELF_TEST
+
+    config FLOW_SUBROOT_SELF_TEST_VOLUME_LITERS
+        int "SUBROOT: volume fixo da sonda (L)"
+        range 1 1000000
+        default 4321
+        depends on FLOW_SUBROOT_SELF_TEST
+
+    config FLOW_SUBROOT_SELF_TEST_DELTA_LITERS
+        int "SUBROOT: delta fixo da sonda (L)"
+        range 1 1000000
+        default 9
+        depends on FLOW_SUBROOT_SELF_TEST
+
 endmenu
 
 menu "ESP-NOW Test Module"

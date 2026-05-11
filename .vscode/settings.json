@@ -3,10 +3,10 @@
   "idf.openOcdConfigs": [
     "board/esp32-bridge.cfg"
   ],
-  "idf.port": "/dev/tty.usbserial-0001",
+  "idf.port": "/dev/tty.usbserial-31110",
   "idf.currentSetup": "/Users/carlos/esp/v5.5.1/esp-idf",
   "idf.customExtraVars": {
-    "IDF_TARGET": "esp32"
+    "IDF_TARGET": "esp32c6"
   },
   "clangd.path": "/Users/carlos/.espressif/tools/esp-clang/esp-19.1.2_20250312/esp-clang/bin/clangd",
   "clangd.arguments": [
@@ -23,7 +23,9 @@
   "terminal.integrated.profiles.osx": {
     "zsh": {
       "path": "/bin/zsh",
-      "args": ["-l"]
+      "args": [
+        "-l"
+      ]
     }
   }
 }

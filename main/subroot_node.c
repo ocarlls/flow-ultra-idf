@@ -120,7 +120,13 @@ static void lora_tx_task(void *arg)
             continue;
         }
 
-        (void)sx1276_lora_transmit((const uint8_t *)&pkt, sizeof(pkt));
+        esp_err_t err = sx1276_lora_transmit((const uint8_t *)&pkt, sizeof(pkt));
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "Falha TX LoRa tipo=%u seq=%lu (%s)",
+                     (unsigned)pkt.type,
+                     (unsigned long)pkt.sequence,
+                     esp_err_to_name(err));
+        }
     }
 }
 
@@ -219,6 +225,13 @@ static void maybe_forward_lora_ack(const sx1276_lora_event_t *event, const flow_
     if (pkt.type != FLOW_PKT_TYPE_ACK) {
         return;
     }
+
+    ESP_LOGI(TAG,
+             "ACK LoRa RX seq=%lu rssi=%d snr=%d route_len=%u",
+             (unsigned long)pkt.sequence,
+             (int)clamp_i16_to_i8(event->rssi_dbm),
+             (int)event->snr_db,
+             (unsigned)pkt.route_len);
 
     const int64_t now_ms = esp_timer_get_time() / 1000LL;
     if (mesh_dedup_is_duplicate(&s_dedup, pkt.meter_id, pkt.sequence, pkt.type, now_ms)) {

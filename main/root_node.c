@@ -15,6 +15,7 @@
 static const char *TAG = "FLOW_ROOT";
 
 #define FLOW_LORA_MAX_ROUTE_LEN 4
+#define FLOW_ACK_DELAY_MS 150
 
 static mesh_dedup_table_t s_dedup = {0};
 
@@ -109,7 +110,18 @@ static void send_ack(const flow_packet_t *rx_pkt)
     ack.lora_snr = INT8_MIN;
 
     flow_packet_update_crc32(&ack);
-    (void)sx1276_lora_transmit((const uint8_t *)&ack, sizeof(ack));
+    vTaskDelay(pdMS_TO_TICKS(FLOW_ACK_DELAY_MS));
+    esp_err_t err = sx1276_lora_transmit((const uint8_t *)&ack, sizeof(ack));
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "ACK TX seq=%lu subroot=%02X:%02X:%02X:%02X:%02X:%02X",
+                 (unsigned long)ack.sequence,
+                 ack.subroot_mac[0], ack.subroot_mac[1], ack.subroot_mac[2],
+                 ack.subroot_mac[3], ack.subroot_mac[4], ack.subroot_mac[5]);
+    } else {
+        ESP_LOGW(TAG, "Falha ao iniciar ACK seq=%lu (%s)",
+                 (unsigned long)ack.sequence,
+                 esp_err_to_name(err));
+    }
 }
 
 void root_node_run(void)

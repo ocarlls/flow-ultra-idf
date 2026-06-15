@@ -112,3 +112,16 @@ esp_err_t as6031_prepare_flow_meter_mode(spi_device_handle_t dev, bool optional_
 // -> write CR 0x0C0..0x0CE and SHR 0x0D0/0x0D1/0x0D2/0x0DA/0x0DB
 // -> RC_MCT_ON + RC_IF_CLR.
 esp_err_t as6031_apply_reference_tof_setup(spi_device_handle_t dev);
+
+// Lê o deltaTOF acumulado em UFR 0x038 e converte para segundos.
+// Equivalente ao sketch Arduino que usa CMD_READ_RAM + UFR_US_TOF.
+esp_err_t as6031_read_delta_tof_seconds(spi_device_handle_t dev, double *out_delta_tof_s);
+
+// Lê deltaTOF em UFR 0x038 e converte para vazao em L/s.
+esp_err_t as6031_read_flow_lps_from_ufr(spi_device_handle_t dev, double *out_flow_lps);
+
+// Lê o valor bruto de UFR_US_TOF (0x038) como int32_t (two's complement).
+esp_err_t as6031_read_raw_tof_i32(spi_device_handle_t dev, int32_t *out_raw_tof);
+
+// Dump de registradores para diagnostico em bancada.
+esp_err_t as6031_debug_dump_regs(spi_device_handle_t dev);

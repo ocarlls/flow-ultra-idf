@@ -16,8 +16,8 @@
 #include "nvs.h"
 #include "driver/spi_master.h"
 #include "driver/gpio.h"
+#include "driver/rtc_io.h"
 #include "esp_sleep.h"
-#include "esp_private/esp_clk.h"   // esp_rtc_get_time_us() — relógio monotônico que persiste no deep sleep
 
 #include "flow_packet.h"
 #include "mesh_dedup.h"
@@ -55,6 +55,9 @@ static const char *TAG = "FLOW_METER";
 #define SLEEP_INTERVAL_TURBO  500000ULL   // 500 ms em µs  (fluxo ativo)
 #define SLEEP_INTERVAL_ECO    5000000ULL  // 5 s em µs     (sem fluxo)
 #define TIMEOUT_ECO_WAKEUPS   10          // wakeups consecutivos sem fluxo → muda p/ ECO
+#define AS6031_RAW_DEADBAND_ABS 12000
+#define MAX_VALID_DT_SEC 30.0
+#define MAX_STEP_VOLUME_L 100.0
 
 // ---------------------------------------------------------------------------
 // RAM RTC — sobrevive ao deep sleep, é zerada apenas no power-on ou reset hard
@@ -65,6 +68,7 @@ RTC_DATA_ATTR static uint32_t rtc_sequence         = 0;     // Sequência de pac
 RTC_DATA_ATTR static uint32_t rtc_no_flow_count    = 0;     // Wakeups consecutivos sem fluxo
 RTC_DATA_ATTR static bool     rtc_turbo_mode       = true;  // Modo de sleep atual
 RTC_DATA_ATTR static bool     rtc_cold_boot        = true;  // true até o primeiro deep sleep
+RTC_DATA_ATTR static int64_t  rtc_last_debug_dump_us = 0;
 
 // ---------------------------------------------------------------------------
 // Variáveis de módulo (RAM normal — reiniciadas a cada wakeup, o que é OK)
@@ -296,10 +300,16 @@ static void enter_deep_sleep(bool turbo)
     esp_wifi_stop();
     esp_wifi_deinit();
 
-    // Acorda por sinal do AS6031 (INTN ativo em LOW) OU por timer de segurança
-    gpio_pullup_en(PIN_NUM_INT);
-    gpio_pulldown_dis(PIN_NUM_INT);
-    esp_sleep_enable_ext0_wakeup(PIN_NUM_INT, 0);   // nível LOW = medição pronta
+    // Acorda por pulso em GPIO0 do AS6031 (HIGH curto) ou por timer de seguranca.
+    // Em ESP32-C6, prioriza GPIO wakeup (API suportada em todos os pinos deepsleep-wakeup-capable).
+    gpio_pullup_dis(PIN_NUM_INT);
+    gpio_pulldown_en(PIN_NUM_INT);
+
+    esp_err_t wk_err = esp_deep_sleep_enable_gpio_wakeup((1ULL << PIN_NUM_INT), ESP_GPIO_WAKEUP_GPIO_HIGH);
+    if (wk_err != ESP_OK) {
+        ESP_LOGW(TAG, "Falha ao configurar wakeup por GPIO INT: %s", esp_err_to_name(wk_err));
+    }
+
     esp_sleep_enable_timer_wakeup(sleep_us);
 
     ESP_LOGI(TAG, "Deep sleep: %s (%llu ms)",
@@ -356,9 +366,9 @@ void meter_node_run(void)
     // -----------------------------------------------------------------------
     // 3. Cálculo do delta de tempo desde o último wakeup
     // -----------------------------------------------------------------------
-    // esp_rtc_get_time_us() é o único relógio monotônico que sobrevive ao deep sleep.
-    // esp_timer_get_time() zera a cada wakeup — não pode ser usado aqui.
-    int64_t tempo_atual = (int64_t)esp_rtc_get_time_us();
+    // esp_timer_get_time() reinicia em cada wakeup. Como rtc_last_wake_us persiste,
+    // o delta negativo/zero cai no fallback para o intervalo de sleep configurado.
+    int64_t tempo_atual = esp_timer_get_time();
     double delta_t_sec  = 0.0;
 
     if (rtc_last_wake_us != 0) {
@@ -372,44 +382,66 @@ void meter_node_run(void)
     rtc_last_wake_us = tempo_atual;
 
     // -----------------------------------------------------------------------
-    // 4. Leitura do volume acumulado diretamente da RAM do AS6031
-    //    O AS6031 continua medindo enquanto o ESP32 dorme. Ele acumula
-    //    o volume internamente em seus registradores de resultado.
+    // 4. Leitura da vazao via UFR_US_TOF (0x038), como no sketch Arduino
     // -----------------------------------------------------------------------
+    double flow_l_s = 0.0;
+    int32_t raw_tof = 0;
+    bool woke_by_gpio = (cause == ESP_SLEEP_WAKEUP_EXT0) ||
+                        (cause == ESP_SLEEP_WAKEUP_GPIO);
 
-    // as6031_read_flow_volume_liters() já adquire e libera o BM internamente.
-    // Não chamar BM_REQ antes — causaria double-acquire.
-    double volume_l = 0.0;
-    err = as6031_read_flow_volume_liters(spi_dev, &volume_l);
+    if (woke_by_gpio) {
+        err = as6031_read_raw_tof_i32(spi_dev, &raw_tof);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Falha ao ler raw UFR do AS6031: %s", esp_err_to_name(err));
+            enter_deep_sleep(rtc_turbo_mode);
+            return;
+        }
 
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Falha ao ler volume do AS6031: %s", esp_err_to_name(err));
-        enter_deep_sleep(rtc_turbo_mode);
-        return; // nunca alcançado — deep_sleep não retorna
+        if (raw_tof > -AS6031_RAW_DEADBAND_ABS && raw_tof < AS6031_RAW_DEADBAND_ABS) {
+            flow_l_s = 0.0;
+        } else {
+            err = as6031_read_flow_lps_from_ufr(spi_dev, &flow_l_s);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "Falha ao converter fluxo UFR do AS6031: %s", esp_err_to_name(err));
+                enter_deep_sleep(rtc_turbo_mode);
+                return;
+            }
+        }
+    } else {
+        flow_l_s = 0.0;
     }
 
-    // Limpa flag de interrupção para que o pino INTN volte para HIGH antes
-    // do próximo deep sleep. A função de leitura já liberou o BM internamente,
-    // portanto NÃO há BM_REQ aqui — causaria double-acquire.
-    as6031_send_remote_cmd(spi_dev, AS6031_RC_IF_CLR);
-    as6031_send_remote_cmd(spi_dev, AS6031_RC_BM_RLS); // no-op se já livre; defensivo
-
-    ESP_LOGI(TAG, "Volume AS6031: %.4f L | anterior: %.4f L | dt: %.3f s",
-             volume_l, rtc_total_volume_l, delta_t_sec);
-
-    // -----------------------------------------------------------------------
-    // 5. Cálculo da vazão instantânea (delta volume / delta tempo)
-    // -----------------------------------------------------------------------
-    double delta_vol    = volume_l - rtc_total_volume_l;
-    double flow_l_s     = (delta_t_sec > 0.0) ? (delta_vol / delta_t_sec) : 0.0;
-
-    // Aceita apenas fluxo positivo acima do limiar (filtra ruído e inversão)
+    // Filtra ruído e direção inversa eventual.
     if (flow_l_s < FLOW_THRESHOLD_L_S) {
         flow_l_s = 0.0;
     }
 
-    // Atualiza a fonte absoluta da verdade (RAM do AS6031 → RTC RAM do ESP32)
-    rtc_total_volume_l = volume_l;
+    // -----------------------------------------------------------------------
+    // 5. Integra volume localmente (V += Q * dt)
+    // -----------------------------------------------------------------------
+    if (delta_t_sec > MAX_VALID_DT_SEC) {
+        delta_t_sec = 0.0;
+    }
+
+    double delta_vol = flow_l_s * delta_t_sec;
+    if (delta_vol < 0.0) {
+        delta_vol = 0.0;
+    }
+    if (delta_vol > MAX_STEP_VOLUME_L) {
+        delta_vol = MAX_STEP_VOLUME_L;
+    }
+
+    if (delta_vol > 0.0) {
+        rtc_total_volume_l += delta_vol;
+    }
+
+    ESP_LOGI(TAG, "Wake=%d raw=%ld flow=%.6f L/s dt=%.3f s dV=%.6f L total=%.6f L",
+             cause, (long)raw_tof, flow_l_s, delta_t_sec, delta_vol, rtc_total_volume_l);
+
+    if ((rtc_last_debug_dump_us == 0) || ((tempo_atual - rtc_last_debug_dump_us) >= 1000000LL)) {
+        (void)as6031_debug_dump_regs(spi_dev);
+        rtc_last_debug_dump_us = tempo_atual;
+    }
 
     // -----------------------------------------------------------------------
     // 6. Lógica de modo TURBO ↔ ECO
@@ -430,7 +462,7 @@ void meter_node_run(void)
     // -----------------------------------------------------------------------
     // 7. Transmissão ESP-NOW (single-shot antes do sleep)
     // -----------------------------------------------------------------------
-    transmit_packet(volume_l, flow_l_s);
+    transmit_packet(rtc_total_volume_l, flow_l_s);
 
     // -----------------------------------------------------------------------
     // 8. Entra em deep sleep — o AS6031 continua medindo sozinho

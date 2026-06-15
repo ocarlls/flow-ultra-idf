@@ -7,6 +7,13 @@
 
 static const char *TAG = "AS6031_REMOTE";
 
+// Conversao equivalente ao modulo calc do sketch Arduino.
+static const double AS6031_TOF_NUM = 0.1;
+static const double AS6031_LSB_S = (125e-9 / 65536.0);
+static const double AS6031_PIPE_AREA = (3.1415926 * (0.025 * 0.025) / 4.0);
+static const double AS6031_SPEED_K = ((1482.0 * 1482.0) / (2.0 * 0.085));
+static const double AS6031_FLOW_POLARITY = -1.0;
+
 static inline uint8_t rc_opcode_with_addr_msb(uint8_t base_opcode_even, uint16_t addr_dword)
 {
     // base_opcode_even must have LSB=0 (e.g., 0x7A, 0x7E, 0x5A, 0x5E)
@@ -33,17 +40,18 @@ static inline void u32_to_be32(uint32_t v, uint8_t *b)
 }
 
 static const uint32_t s_ref_config_official[15] = {
-    0x48DBA399, 0x00800401, 0x00111110, 0x00000001,
-    0x010703FF, 0x20060C08, 0x01012080, 0x00242020,
-    0x006A0804, 0x600F0208, 0x000FEA0E, 0x00A0DE41,
-    0x94A0C4C6, 0x401100C4, 0x00A7400F
+    0x48DBA399, 0x00800401, 0x00110110, 0x00000001,
+    0x010703FF, 0x20060C08, 0x0101E080, 0x00242020,
+    0x006A0804, 0x60160208, 0x000FEA0E, 0x00A0DE41,
+    0x95A0C06C, 0x40110000, 0x4027000F
 };
 
 static const uint32_t s_ref_reg_d0_fast = 0x00000001;
 static const uint32_t s_ref_reg_d1 = 0x00001780;
-static const uint32_t s_ref_reg_d2 = 0x00001680;
+static const uint32_t s_ref_reg_d2 = 0x00001780;
 static const uint32_t s_ref_reg_da = 0x00000021;
 static const uint32_t s_ref_reg_db = 0x00000021;
+static const uint32_t s_ref_ufr_zero = 0x00000000;
 
 static void as6031_log_candidate_pairs_once(spi_device_handle_t dev)
 {
@@ -475,6 +483,9 @@ esp_err_t as6031_apply_reference_tof_setup(spi_device_handle_t dev)
     if (err == ESP_OK) err = as6031_raawr_dwords(dev, 0x0D2u, &s_ref_reg_d2, 1, false, NULL);
     if (err == ESP_OK) err = as6031_raawr_dwords(dev, 0x0DAu, &s_ref_reg_da, 1, false, NULL);
     if (err == ESP_OK) err = as6031_raawr_dwords(dev, 0x0DBu, &s_ref_reg_db, 1, false, NULL);
+    for (uint16_t addr = 0x030u; err == ESP_OK && addr <= 0x037u; addr++) {
+        err = as6031_raawr_dwords(dev, addr, &s_ref_ufr_zero, 1, false, NULL);
+    }
     if (err != ESP_OK) {
         (void)as6031_send_remote_cmd(dev, AS6031_RC_BM_RLS);
         return err;
@@ -503,6 +514,125 @@ esp_err_t as6031_apply_reference_tof_setup(spi_device_handle_t dev)
     if (rel_err != ESP_OK) {
         return rel_err;
     }
+
+    return ESP_OK;
+}
+
+esp_err_t as6031_read_delta_tof_seconds(spi_device_handle_t dev, double *out_delta_tof_s)
+{
+    if (dev == NULL || out_delta_tof_s == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    esp_err_t err = as6031_send_remote_cmd(dev, AS6031_RC_BM_REQ);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    uint32_t raw_tof_u32 = 0;
+    err = as6031_read_u32(dev, 0x038u, &raw_tof_u32);
+    if (err == ESP_OK) {
+        const uint32_t clear_error_flag = 0x00000001u;
+        err = as6031_raawr_dwords(dev, 0x0DDu, &clear_error_flag, 1, false, NULL);
+    }
+
+    esp_err_t rel_err = as6031_send_remote_cmd(dev, AS6031_RC_BM_RLS);
+    if (err == ESP_OK && rel_err != ESP_OK) {
+        err = rel_err;
+    }
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    const int32_t raw_tof_i32 = (int32_t)raw_tof_u32;
+    *out_delta_tof_s = ((double)raw_tof_i32) * AS6031_LSB_S * AS6031_TOF_NUM;
+    return ESP_OK;
+}
+
+esp_err_t as6031_read_flow_lps_from_ufr(spi_device_handle_t dev, double *out_flow_lps)
+{
+    if (dev == NULL || out_flow_lps == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    double delta_tof_s = 0.0;
+    esp_err_t err = as6031_read_delta_tof_seconds(dev, &delta_tof_s);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    const double speed_mps = delta_tof_s * AS6031_SPEED_K * AS6031_FLOW_POLARITY;
+    *out_flow_lps = speed_mps * AS6031_PIPE_AREA * 1000.0;
+    return ESP_OK;
+}
+
+esp_err_t as6031_read_raw_tof_i32(spi_device_handle_t dev, int32_t *out_raw_tof)
+{
+    if (dev == NULL || out_raw_tof == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    esp_err_t err = as6031_send_remote_cmd(dev, AS6031_RC_BM_REQ);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    uint32_t raw_u32 = 0;
+    err = as6031_read_u32(dev, 0x038u, &raw_u32);
+    if (err == ESP_OK) {
+        const uint32_t clear_error_flag = 0x00000001u;
+        err = as6031_raawr_dwords(dev, 0x0DDu, &clear_error_flag, 1, false, NULL);
+    }
+
+    esp_err_t rel_err = as6031_send_remote_cmd(dev, AS6031_RC_BM_RLS);
+    if (err == ESP_OK && rel_err != ESP_OK) {
+        err = rel_err;
+    }
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    *out_raw_tof = (int32_t)raw_u32;
+    return ESP_OK;
+}
+
+esp_err_t as6031_debug_dump_regs(spi_device_handle_t dev)
+{
+    if (dev == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    esp_err_t err = as6031_send_remote_cmd(dev, AS6031_RC_BM_REQ);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    uint32_t r_d0 = 0, r_e0 = 0, r34 = 0, r35 = 0, r36 = 0, r37 = 0, r38 = 0;
+    err = as6031_read_u32(dev, 0x0D0u, &r_d0);
+    if (err == ESP_OK) err = as6031_read_u32(dev, 0x0E0u, &r_e0);
+    if (err == ESP_OK) err = as6031_read_u32(dev, 0x034u, &r34);
+    if (err == ESP_OK) err = as6031_read_u32(dev, 0x035u, &r35);
+    if (err == ESP_OK) err = as6031_read_u32(dev, 0x036u, &r36);
+    if (err == ESP_OK) err = as6031_read_u32(dev, 0x037u, &r37);
+    if (err == ESP_OK) err = as6031_read_u32(dev, 0x038u, &r38);
+
+    esp_err_t rel_err = as6031_send_remote_cmd(dev, AS6031_RC_BM_RLS);
+    if (err == ESP_OK && rel_err != ESP_OK) {
+        err = rel_err;
+    }
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    ESP_LOGI(TAG,
+             "AS6031 DBG D0=0x%08lX E0=0x%08lX 34=0x%08lX 35=0x%08lX 36=0x%08lX 37=0x%08lX 38=0x%08lX",
+             (unsigned long)r_d0,
+             (unsigned long)r_e0,
+             (unsigned long)r34,
+             (unsigned long)r35,
+             (unsigned long)r36,
+             (unsigned long)r37,
+             (unsigned long)r38);
 
     return ESP_OK;
 }

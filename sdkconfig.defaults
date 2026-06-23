@@ -1,0 +1,26 @@
+# =============================================================================
+# Defaults para o TESTE de consumo de transmissao (Fase 1 — light sleep)
+# -----------------------------------------------------------------------------
+# IMPORTANTE: sdkconfig.defaults so e aplicado quando o sdkconfig e (re)gerado.
+# Como ja existe um sdkconfig no repo, para ativar estas opcoes faca UMA destas:
+#   - apagar o sdkconfig e rodar `idf.py reconfigure`, ou
+#   - habilita-las via `idf.py menuconfig`.
+# Estas opcoes so tem efeito no caminho light sleep (gated por Kconfig); o
+# baseline deep sleep nao depende delas.
+# =============================================================================
+
+# Power management — necessario para esp_pm_configure()
+CONFIG_PM_ENABLE=y
+
+# Automatic light sleep — entra em light sleep no idle do FreeRTOS
+CONFIG_FREERTOS_USE_TICKLESS_IDLE=y
+
+# Power-save do WiFi no estado desconectado/connectionless — necessario para
+# esp_now_set_wake_window() / esp_wifi_connectionless_module_set_wake_interval()
+# (no ESP-NOW broadcast nao ha associacao a AP).
+CONFIG_ESP_WIFI_STA_DISCONNECTED_PM_ENABLE=y
+
+# Desliga a CPU em light sleep (ja era default no C6), mas NAO desliga
+# perifericos — assim UART/console e estado de driver sobrevivem ao sleep.
+CONFIG_PM_POWER_DOWN_CPU_IN_LIGHT_SLEEP=y
+# CONFIG_PM_POWER_DOWN_PERIPHERAL_IN_LIGHT_SLEEP is not set

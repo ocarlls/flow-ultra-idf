@@ -208,10 +208,10 @@ menu "Flow Mesh Network"
             bool "METER (ESP32-C6, somente ESP-NOW)"
 
         config FLOW_ROLE_SUBROOT
-            bool "SUBROOT (Heltec LoRa32 v2, ESP-NOW + LoRa)"
+            bool "SUBROOT (ESP32-C6 + E220, ESP-NOW + LoRa)"
 
         config FLOW_ROLE_ROOT
-            bool "ROOT (Heltec LoRa32 v2, agrega e loga)"
+            bool "ROOT (ESP32-C6 + E220, agrega e loga)"
     endchoice
 
     config FLOW_SUBROOT_SELF_TEST
@@ -239,6 +239,183 @@ menu "Flow Mesh Network"
         range 1 1000000
         default 9
         depends on FLOW_SUBROOT_SELF_TEST
+
+    # -----------------------------------------------------------------------
+    # Teste de consumo de TRANSMISSAO (sem AS6031, dados sinteticos)
+    # -----------------------------------------------------------------------
+    config FLOW_METER_TX_TEST
+        bool "METER: modo de teste so-transmissao (dados sinteticos, sem AS6031)"
+        default n
+        depends on FLOW_MESH_MODE && FLOW_ROLE_METER
+        help
+            Substitui o caminho normal do METER (que le o AS6031) por um caminho
+            de TESTE que apenas gera pacotes sinteticos e os transmite por ESP-NOW.
+            Serve para medir o consumo de energia SOMENTE da transmissao de dados.
+            Nenhum SPI/sensor e inicializado.
+
+    config FLOW_METER_LIGHT_SLEEP
+        bool "METER teste: usar light sleep + WiFi duty-cycled (n = baseline deep sleep)"
+        default y
+        depends on FLOW_METER_TX_TEST
+        help
+            y: mantem WiFi vivo em light sleep com wake-window connectionless
+               (wake-on-radio por WiFi: consegue RECEBER e fazer relay dormindo).
+            n: baseline deep sleep so-transmissao (transmissor cego, menor consumo)
+               para comparacao de corrente.
+
+    config FLOW_SUBROOT_LIGHT_SLEEP
+        bool "SUBROOT: light sleep + WiFi duty-cycled (RX connectionless)"
+        default n
+        depends on FLOW_MESH_MODE && FLOW_ROLE_SUBROOT
+        help
+            Faz o SUBROOT deixar de ser sempre-ligado e dormir em light sleep,
+            acordando o WiFi periodicamente (mesma window/interval do METER) para
+            receber os bursts ESP-NOW. O lado LoRa permanece (WOR vem na Fase 2).
+
+    config FLOW_LS_WAKE_WINDOW_MS
+        int "Light sleep: janela de escuta WiFi (ms)"
+        range 5 2000
+        default 30
+        depends on FLOW_METER_TX_TEST || FLOW_SUBROOT_LIGHT_SLEEP
+        help
+            Tempo que o radio fica acordado escutando a cada intervalo. Deve ser
+            menor que o intervalo. Janela maior = capta mais facil, gasta mais.
+
+    config FLOW_LS_WAKE_INTERVAL_MS
+        int "Light sleep: intervalo do duty-cycle WiFi (ms)"
+        range 20 4000
+        default 300
+        depends on FLOW_METER_TX_TEST || FLOW_SUBROOT_LIGHT_SLEEP
+        help
+            Periodo do duty-cycle do radio. Intervalo maior = menor consumo medio,
+            maior latencia de recepcao. METER e SUBROOT devem usar o mesmo par.
+
+    config FLOW_LS_TX_BURST_MS
+        int "Light sleep: duracao do burst de TX (ms)"
+        range 10 8000
+        default 350
+        depends on FLOW_METER_TX_TEST
+        help
+            Repete o mesmo pacote por este tempo (>= 1 intervalo + janela) para
+            cair em alguma janela de escuta do receptor, sem sincronia de relogio.
+
+    config FLOW_LS_TX_SPACING_MS
+        int "Light sleep: espacamento entre repeticoes do burst (ms)"
+        range 1 1000
+        default 25
+        depends on FLOW_METER_TX_TEST
+        help
+            Intervalo entre copias dentro do burst. Deve ser <= janela de escuta.
+
+    config FLOW_LS_TX_PERIOD_MS
+        int "Light sleep: periodo entre relatorios originados (ms)"
+        range 200 600000
+        default 5000
+        depends on FLOW_METER_TX_TEST
+
+    config FLOW_LS_STATS_INTERVAL_S
+        int "Light sleep: intervalo do resumo de estatisticas (s)"
+        range 5 600
+        default 30
+        depends on FLOW_METER_TX_TEST || FLOW_SUBROOT_LIGHT_SLEEP
+
+    config FLOW_LS_VERBOSE
+        bool "Light sleep: logs verbosos (desligar para medir corrente limpa)"
+        default y
+        depends on FLOW_METER_TX_TEST || FLOW_SUBROOT_LIGHT_SLEEP
+
+endmenu
+
+menu "EBYTE E220 LoRa Radio"
+
+    comment "Pinos = -1 ate o modulo ser fiado. O driver rejeita pinos invalidos."
+
+    config FLOW_E220_UART_PORT
+        int "UART usada pelo E220 (0 = console no ESP32-C6; use 1)"
+        range 0 2
+        default 1
+        help
+            Porta UART dedicada ao E220. No ESP32-C6 a UART0 e o console de log,
+            entao use UART1.
+
+    config FLOW_E220_PIN_TX
+        int "GPIO TX do ESP (-> RXD do E220)"
+        range -1 48
+        default -1
+
+    config FLOW_E220_PIN_RX
+        int "GPIO RX do ESP (<- TXD do E220)"
+        range -1 48
+        default -1
+
+    config FLOW_E220_PIN_M0
+        int "GPIO M0 (saida; bit0 de modo)"
+        range -1 48
+        default -1
+
+    config FLOW_E220_PIN_M1
+        int "GPIO M1 (saida; bit1 de modo)"
+        range -1 48
+        default -1
+
+    config FLOW_E220_PIN_AUX
+        int "GPIO AUX (entrada; busy=0/ready=1)"
+        range -1 48
+        default -1
+
+    config FLOW_E220_BAUD
+        int "Baud da UART (deve casar com o gravado no modulo)"
+        range 1200 115200
+        default 9600
+
+    config FLOW_E220_ADDRESS
+        int "Endereco do modulo (ADDH:ADDL, 0-65535)"
+        range 0 65535
+        default 0
+        help
+            Mesmo endereco/canal/air-rate em todos os nos no modo transparente.
+
+    config FLOW_E220_CHANNEL
+        int "Canal RF (frequencia = 850.125 + CH MHz)"
+        range 0 80
+        default 65
+        help
+            E220-900T22: f = 850.125 MHz + canal x 1 MHz. CH=65 -> ~915 MHz.
+
+    config FLOW_E220_AIR_DATA_RATE
+        int "Air data rate (codigo REG0[2:0])"
+        range 0 7
+        default 2
+        help
+            Codigo de 3 bits do registrador. Menor taxa = maior alcance. O default
+            (2) corresponde a ~2.4 kbps (maior alcance), equivalente a intencao de
+            SF alto do driver SPI antigo.
+
+    config FLOW_E220_TX_POWER_DBM
+        int "Potencia TX (dBm; arredonda para 22/17/13/10)"
+        range 10 22
+        default 22
+
+    config FLOW_E220_WOR_PERIOD_MS
+        int "Periodo WOR (ms; 0 = WOR desabilitado)"
+        range 0 4000
+        default 0
+        help
+            Quando > 0, o modulo entra em wake-on-radio (escuta periodica).
+            Passos de 500 ms no E220. 0 mantem o modulo em RX continuo/normal.
+
+    config FLOW_E220_FIXED_MODE
+        bool "Modo fixo (endereçado) em vez de transparente"
+        default n
+        help
+            Mantenha desabilitado (transparente) salvo necessidade de endereçamento.
+
+    config FLOW_E220_RSSI_BYTE
+        bool "Anexar byte de RSSI ao pacote recebido"
+        default y
+        help
+            Habilita o recurso de RSSI ambiente/por-pacote do E220. O SNR nao esta
+            disponivel no modo transparente (renderizado como '--').
 
 endmenu
 
@@ -293,7 +470,7 @@ menu "LoRa Test Module"
         help
             Quando habilitado, o firmware ignora o fluxo normal do hidrômetro
             e executa somente o módulo de teste LoRa para validacao de alcance
-            em topologia ROOT/NODE com SX1276.
+            em topologia ROOT/NODE com o modulo EBYTE E220.
 
     choice LORA_TEST_ROLE
         prompt "Papel no teste LoRa"
@@ -312,83 +489,6 @@ menu "LoRa Test Module"
         range 137 1020
         default 915
         depends on LORA_TEST_MODE
-
-    choice LORA_TEST_BANDWIDTH_PROFILE
-        prompt "Bandwidth LoRa"
-        default LORA_TEST_BW_125
-        depends on LORA_TEST_MODE
-
-        config LORA_TEST_BW_7_8
-            bool "7.8 kHz"
-
-        config LORA_TEST_BW_10_4
-            bool "10.4 kHz"
-
-        config LORA_TEST_BW_15_6
-            bool "15.6 kHz"
-
-        config LORA_TEST_BW_20_8
-            bool "20.8 kHz"
-
-        config LORA_TEST_BW_31_25
-            bool "31.25 kHz"
-
-        config LORA_TEST_BW_41_7
-            bool "41.7 kHz"
-
-        config LORA_TEST_BW_62_5
-            bool "62.5 kHz"
-
-        config LORA_TEST_BW_125
-            bool "125 kHz"
-
-        config LORA_TEST_BW_250
-            bool "250 kHz"
-
-        config LORA_TEST_BW_500
-            bool "500 kHz"
-    endchoice
-
-    config LORA_TEST_BANDWIDTH_KHZ
-        int
-        default 8 if LORA_TEST_BW_7_8
-        default 10 if LORA_TEST_BW_10_4
-        default 15 if LORA_TEST_BW_15_6
-        default 20 if LORA_TEST_BW_20_8
-        default 31 if LORA_TEST_BW_31_25
-        default 41 if LORA_TEST_BW_41_7
-        default 62 if LORA_TEST_BW_62_5
-        default 125 if LORA_TEST_BW_125
-        default 250 if LORA_TEST_BW_250
-        default 500 if LORA_TEST_BW_500
-
-    config LORA_TEST_SPREADING_FACTOR
-        int "Spreading factor"
-        range 7 12
-        default 12
-        depends on LORA_TEST_MODE
-
-    config LORA_TEST_TX_POWER_DBM
-        int "Potencia TX (dBm)"
-        range 2 20
-        default 20
-        depends on LORA_TEST_MODE
-
-    config LORA_TEST_CODING_RATE
-        int "Coding rate (1=4/5  2=4/6  3=4/7  4=4/8)"
-        range 1 4
-        default 4
-        depends on LORA_TEST_MODE
-        help
-            Maior valor = maior redundancia = maior alcance, menor throughput.
-
-    config LORA_TEST_PREAMBLE_LEN
-        int "Comprimento do preambulo (simbolos)"
-        range 6 255
-        default 12
-        depends on LORA_TEST_MODE
-        help
-            Preambulo maior melhora a deteccao do sinal em links fracos.
 
     config LORA_TEST_NODE_SEND_INTERVAL_MS
         int "Intervalo base de envio do NODE (ms)"

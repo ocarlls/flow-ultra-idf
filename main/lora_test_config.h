@@ -21,26 +21,6 @@
 #define CONFIG_LORA_TEST_FREQUENCY_MHZ 915
 #endif
 
-#ifndef CONFIG_LORA_TEST_BANDWIDTH_KHZ
-#define CONFIG_LORA_TEST_BANDWIDTH_KHZ 125
-#endif
-
-#ifndef CONFIG_LORA_TEST_SPREADING_FACTOR
-#define CONFIG_LORA_TEST_SPREADING_FACTOR 12
-#endif
-
-#ifndef CONFIG_LORA_TEST_TX_POWER_DBM
-#define CONFIG_LORA_TEST_TX_POWER_DBM 20
-#endif
-
-#ifndef CONFIG_LORA_TEST_CODING_RATE
-#define CONFIG_LORA_TEST_CODING_RATE 4  /* 4/8 — maxima correcao de erro */
-#endif
-
-#ifndef CONFIG_LORA_TEST_PREAMBLE_LEN
-#define CONFIG_LORA_TEST_PREAMBLE_LEN 12
-#endif
-
 #ifndef CONFIG_LORA_TEST_NODE_SEND_INTERVAL_MS
 #define CONFIG_LORA_TEST_NODE_SEND_INTERVAL_MS 2000
 #endif
@@ -53,12 +33,54 @@
 #define CONFIG_LORA_TEST_ROOT_SUMMARY_INTERVAL_MS 10000
 #endif
 
-#define LORA_TEST_PIN_SCK 5
-#define LORA_TEST_PIN_MISO 19
-#define LORA_TEST_PIN_MOSI 27
-#define LORA_TEST_PIN_CS 18
-#define LORA_TEST_PIN_RST 14
-#define LORA_TEST_PIN_DIO0 26
+/*
+ * Fallbacks dos simbolos do modulo EBYTE E220 (caso o menu Kconfig nao esteja
+ * presente em um dado build). Pinos = -1 (invalidos) ate o hardware ser fiado;
+ * o driver e220_lora rejeita pinos -1. Os bool ficam indefinidos quando "n" no
+ * Kconfig, dai o #ifndef -> 0.
+ */
+#ifndef CONFIG_FLOW_E220_UART_PORT
+#define CONFIG_FLOW_E220_UART_PORT 1
+#endif
+#ifndef CONFIG_FLOW_E220_PIN_TX
+#define CONFIG_FLOW_E220_PIN_TX (-1)
+#endif
+#ifndef CONFIG_FLOW_E220_PIN_RX
+#define CONFIG_FLOW_E220_PIN_RX (-1)
+#endif
+#ifndef CONFIG_FLOW_E220_PIN_M0
+#define CONFIG_FLOW_E220_PIN_M0 (-1)
+#endif
+#ifndef CONFIG_FLOW_E220_PIN_M1
+#define CONFIG_FLOW_E220_PIN_M1 (-1)
+#endif
+#ifndef CONFIG_FLOW_E220_PIN_AUX
+#define CONFIG_FLOW_E220_PIN_AUX (-1)
+#endif
+#ifndef CONFIG_FLOW_E220_BAUD
+#define CONFIG_FLOW_E220_BAUD 9600
+#endif
+#ifndef CONFIG_FLOW_E220_ADDRESS
+#define CONFIG_FLOW_E220_ADDRESS 0
+#endif
+#ifndef CONFIG_FLOW_E220_CHANNEL
+#define CONFIG_FLOW_E220_CHANNEL 65
+#endif
+#ifndef CONFIG_FLOW_E220_AIR_DATA_RATE
+#define CONFIG_FLOW_E220_AIR_DATA_RATE 2
+#endif
+#ifndef CONFIG_FLOW_E220_TX_POWER_DBM
+#define CONFIG_FLOW_E220_TX_POWER_DBM 22
+#endif
+#ifndef CONFIG_FLOW_E220_WOR_PERIOD_MS
+#define CONFIG_FLOW_E220_WOR_PERIOD_MS 0
+#endif
+#ifndef CONFIG_FLOW_E220_FIXED_MODE
+#define CONFIG_FLOW_E220_FIXED_MODE 0
+#endif
+#ifndef CONFIG_FLOW_E220_RSSI_BYTE
+#define CONFIG_FLOW_E220_RSSI_BYTE 0
+#endif
 
 #define LORA_TEST_OLED_I2C_PORT 0
 #define LORA_TEST_OLED_PIN_SDA 4
@@ -70,4 +92,3 @@
 #define LORA_TEST_OLED_HEIGHT 64
 
 #define LORA_TEST_FREQUENCY_HZ ((uint32_t)CONFIG_LORA_TEST_FREQUENCY_MHZ * 1000000UL)
-#define LORA_TEST_BANDWIDTH_HZ ((uint32_t)CONFIG_LORA_TEST_BANDWIDTH_KHZ * 1000UL)

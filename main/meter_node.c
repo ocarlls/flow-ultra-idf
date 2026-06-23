@@ -1,5 +1,20 @@
 #include "meter_node.h"
 
+#if CONFIG_FLOW_METER_TX_TEST
+/* -------------------------------------------------------------------------
+ * Modo de TESTE de transmissao (dados sinteticos, sem AS6031).
+ * Mede o consumo SOMENTE da transmissao de dados. O caminho de producao
+ * com AS6031 (abaixo, no #else) NAO e compilado neste modo.
+ * ------------------------------------------------------------------------- */
+#include "meter_tx_test.h"
+
+void meter_node_run(void)
+{
+    meter_tx_test_run();
+}
+
+#else /* !CONFIG_FLOW_METER_TX_TEST — caminho de producao com AS6031 */
+
 #include <string.h>
 #include <math.h>
 
@@ -469,3 +484,5 @@ void meter_node_run(void)
     // -----------------------------------------------------------------------
     enter_deep_sleep(rtc_turbo_mode);
 }
+
+#endif /* CONFIG_FLOW_METER_TX_TEST */

@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:www.radioenge.com.br)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:documentation.espressif.com)",
+      "Bash(curl -sL -o esp32c6_ds.pdf \"https://www.espressif.com/sites/default/files/documentation/esp32-c6_datasheet_en.pdf\")",
+      "WebFetch(domain:docs.espressif.com)",
+      "WebFetch(domain:mischianti.org)",
+      "WebFetch(domain:hubble.com)",
+      "WebFetch(domain:www.ericsson.com)",
+      "Bash(pdftotext -layout esp32c6_ds.pdf esp32c6_ds.txt)",
+      "WebFetch(domain:www.lcsc.com)",
+      "WebFetch(domain:adam.feinste.in)",
+      "WebFetch(domain:wolles-elektronikkiste.de)",
+      "WebFetch(domain:www.espressif.com)",
+      "WebFetch(domain:voltiq.ru)",
+      "WebFetch(domain:blog.cyril.by)",
+      "Bash(pdftotext webfetch-1782219483569-4ro3fa.pdf -)",
+      "Bash(grep -iA3 -B1 -E \"RX listening|Wi-Fi RX|RF receiving|receiving|Modem-sleep current|Light-sleep.*mA|Light-sleep.*µA\")",
+      "Bash(pdftotext -layout webfetch-1782219483569-4ro3fa.pdf -)",
+      "Bash(grep -iA40 \"Current Consumption\")",
+      "Bash(grep -iA45 \"Table 5-4. Current Consumption Depending on RF\")"
+    ]
+  }
+}

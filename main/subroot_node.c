@@ -18,7 +18,11 @@
 #include "flow_packet.h"
 #include "lora_test_config.h"
 #include "mesh_dedup.h"
-#include "sx1276_lora.h"
+#include "e220_lora.h"
+
+#if CONFIG_FLOW_SUBROOT_LIGHT_SLEEP && CONFIG_PM_ENABLE
+#include "esp_pm.h"
+#endif
 
 static const char *TAG = "FLOW_SUBROOT";
 
@@ -120,7 +124,7 @@ static void lora_tx_task(void *arg)
             continue;
         }
 
-        esp_err_t err = sx1276_lora_transmit((const uint8_t *)&pkt, sizeof(pkt));
+        esp_err_t err = e220_lora_transmit((const uint8_t *)&pkt, sizeof(pkt));
         if (err != ESP_OK) {
             ESP_LOGW(TAG, "Falha TX LoRa tipo=%u seq=%lu (%s)",
                      (unsigned)pkt.type,
@@ -170,7 +174,7 @@ static void subroot_probe_task(void *arg)
 }
 #endif
 
-static void maybe_forward_lora_meter_data(const sx1276_lora_event_t *event, const flow_packet_t *rx_pkt)
+static void maybe_forward_lora_meter_data(const e220_lora_event_t *event, const flow_packet_t *rx_pkt)
 {
     if (event == NULL || rx_pkt == NULL) {
         return;
@@ -210,7 +214,7 @@ static void maybe_forward_lora_meter_data(const sx1276_lora_event_t *event, cons
     enqueue_lora_tx(&pkt);
 }
 
-static void maybe_forward_lora_ack(const sx1276_lora_event_t *event, const flow_packet_t *rx_pkt)
+static void maybe_forward_lora_ack(const e220_lora_event_t *event, const flow_packet_t *rx_pkt)
 {
     if (event == NULL || rx_pkt == NULL) {
         return;
@@ -270,15 +274,15 @@ static void lora_rx_task(void *arg)
     (void)arg;
 
     while (1) {
-        sx1276_lora_event_t event = {0};
-        esp_err_t err = sx1276_lora_receive_event(&event, pdMS_TO_TICKS(200));
+        e220_lora_event_t event = {0};
+        esp_err_t err = e220_lora_receive_event(&event, pdMS_TO_TICKS(200));
         if (err == ESP_ERR_TIMEOUT) {
             continue;
         }
         if (err != ESP_OK) {
             continue;
         }
-        if (event.type != SX1276_LORA_EVENT_RX_DONE) {
+        if (event.type != E220_LORA_EVENT_RX_DONE) {
             continue;
         }
         if (event.payload_len != sizeof(flow_packet_t)) {
@@ -339,26 +343,65 @@ static esp_err_t init_wifi_espnow(void)
 
 static esp_err_t init_lora_radio(void)
 {
-    sx1276_lora_config_t config = {
-        .spi_host = SPI2_HOST,
-        .pin_sck = LORA_TEST_PIN_SCK,
-        .pin_miso = LORA_TEST_PIN_MISO,
-        .pin_mosi = LORA_TEST_PIN_MOSI,
-        .pin_cs = LORA_TEST_PIN_CS,
-        .pin_rst = LORA_TEST_PIN_RST,
-        .pin_dio0 = LORA_TEST_PIN_DIO0,
+    e220_lora_config_t config = {
+        .uart_port = CONFIG_FLOW_E220_UART_PORT,
+        .pin_tx = CONFIG_FLOW_E220_PIN_TX,
+        .pin_rx = CONFIG_FLOW_E220_PIN_RX,
+        .pin_m0 = CONFIG_FLOW_E220_PIN_M0,
+        .pin_m1 = CONFIG_FLOW_E220_PIN_M1,
+        .pin_aux = CONFIG_FLOW_E220_PIN_AUX,
+        .baud = CONFIG_FLOW_E220_BAUD,
+        .address = (uint16_t)CONFIG_FLOW_E220_ADDRESS,
+        .channel = (uint8_t)CONFIG_FLOW_E220_CHANNEL,
+        .air_data_rate = (uint8_t)CONFIG_FLOW_E220_AIR_DATA_RATE,
+        .tx_power_dbm = (int8_t)CONFIG_FLOW_E220_TX_POWER_DBM,
+        .wor_period_ms = (uint16_t)CONFIG_FLOW_E220_WOR_PERIOD_MS,
+        .fixed_mode = CONFIG_FLOW_E220_FIXED_MODE,
+        .rssi_byte = CONFIG_FLOW_E220_RSSI_BYTE,
         .frequency_hz = LORA_TEST_FREQUENCY_HZ,
-        .bandwidth_hz = LORA_TEST_BANDWIDTH_HZ,
-        .spreading_factor = CONFIG_LORA_TEST_SPREADING_FACTOR,
-        .tx_power_dbm = CONFIG_LORA_TEST_TX_POWER_DBM,
-        .coding_rate = CONFIG_LORA_TEST_CODING_RATE,
-        .preamble_len = CONFIG_LORA_TEST_PREAMBLE_LEN,
     };
 
-    ESP_RETURN_ON_ERROR(sx1276_lora_init(&config), TAG, "sx1276 init");
-    sx1276_lora_flush_events();
-    return sx1276_lora_start_rx_continuous();
+    ESP_RETURN_ON_ERROR(e220_lora_init(&config), TAG, "e220 init");
+    e220_lora_flush_events();
+    return e220_lora_start_rx_continuous();
 }
+
+#if CONFIG_FLOW_SUBROOT_LIGHT_SLEEP
+static void subroot_enable_power_save(void)
+{
+    // Mesmo duty-cycle connectionless do METER, para captar os bursts ESP-NOW
+    // enquanto dorme em light sleep. Chamar DEPOIS de esp_wifi_start().
+    esp_err_t err = esp_wifi_set_ps(WIFI_PS_MAX_MODEM);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "esp_wifi_set_ps falhou: %s", esp_err_to_name(err));
+    }
+    err = esp_now_set_wake_window(CONFIG_FLOW_LS_WAKE_WINDOW_MS);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "esp_now_set_wake_window falhou: %s", esp_err_to_name(err));
+    }
+    err = esp_wifi_connectionless_module_set_wake_interval(CONFIG_FLOW_LS_WAKE_INTERVAL_MS);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "set_wake_interval falhou: %s (habilitar connectionless PS?)",
+                 esp_err_to_name(err));
+    }
+#if CONFIG_PM_ENABLE
+    esp_pm_config_t pm = {
+        .max_freq_mhz = 160,
+        .min_freq_mhz = 10,
+        .light_sleep_enable = true,
+    };
+    err = esp_pm_configure(&pm);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "esp_pm_configure falhou: %s", esp_err_to_name(err));
+    }
+#else
+    ESP_LOGW(TAG, "CONFIG_PM_ENABLE desligado: sem automatic light sleep");
+#endif
+    ESP_LOGW(TAG,
+             "SUBROOT light sleep: window=%dms interval=%dms (LoRa RX continuo ainda mascara a economia ate WOR/Fase 2)",
+             CONFIG_FLOW_LS_WAKE_WINDOW_MS, CONFIG_FLOW_LS_WAKE_INTERVAL_MS);
+}
+#endif /* CONFIG_FLOW_SUBROOT_LIGHT_SLEEP */
 
 void subroot_node_run(void)
 {
@@ -367,6 +410,10 @@ void subroot_node_run(void)
 
     ESP_ERROR_CHECK(init_wifi_espnow());
     ESP_ERROR_CHECK(init_lora_radio());
+
+#if CONFIG_FLOW_SUBROOT_LIGHT_SLEEP
+    subroot_enable_power_save();
+#endif
 
     s_lora_tx_queue = xQueueCreate(8, sizeof(flow_packet_t));
     if (s_lora_tx_queue == NULL) {

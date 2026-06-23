@@ -18,22 +18,12 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 
-#include "sx1276_lora.h"
+#include "e220_lora.h"
 
-/* TX time-on-air upper bound with 2x safety margin (BW=125 kHz) */
-#if CONFIG_LORA_TEST_SPREADING_FACTOR >= 12
-#define LORA_TEST_TX_DONE_TIMEOUT_MS 14000U
-#elif CONFIG_LORA_TEST_SPREADING_FACTOR >= 11
-#define LORA_TEST_TX_DONE_TIMEOUT_MS 7000U
-#elif CONFIG_LORA_TEST_SPREADING_FACTOR >= 10
-#define LORA_TEST_TX_DONE_TIMEOUT_MS 3600U
-#elif CONFIG_LORA_TEST_SPREADING_FACTOR >= 9
-#define LORA_TEST_TX_DONE_TIMEOUT_MS 1800U
-#elif CONFIG_LORA_TEST_SPREADING_FACTOR >= 8
-#define LORA_TEST_TX_DONE_TIMEOUT_MS 1000U
-#else
-#define LORA_TEST_TX_DONE_TIMEOUT_MS  600U
-#endif
+/* TX_DONE e sintetizado a partir do pino AUX do E220 (modo transparente nao tem
+ * IRQ de TX_DONE). Limite superior generoso para cobrir o air-time do pacote no
+ * menor air data rate; o evento normalmente chega bem antes. */
+#define LORA_TEST_TX_DONE_TIMEOUT_MS 6000U
 #define LORA_TEST_ACK_TIMEOUT_MS (LORA_TEST_TX_DONE_TIMEOUT_MS + 2000U)
 #define LORA_TEST_MAX_NODES 32
 #define LORA_TEST_OLED_CMD_BITS 8
@@ -648,22 +638,22 @@ static esp_err_t wait_for_tx_done(uint32_t timeout_ms)
     int64_t deadline_us = esp_timer_get_time() + ((int64_t)timeout_ms * 1000LL);
 
     while (esp_timer_get_time() < deadline_us) {
-        sx1276_lora_event_t event = {0};
+        e220_lora_event_t event = {0};
         int64_t remaining_ms = (deadline_us - esp_timer_get_time()) / 1000LL;
         TickType_t wait = pdMS_TO_TICKS((remaining_ms > 50) ? 50 : (remaining_ms > 0 ? remaining_ms : 1));
-        esp_err_t err = sx1276_lora_receive_event(&event, wait);
+        esp_err_t err = e220_lora_receive_event(&event, wait);
         if (err == ESP_ERR_TIMEOUT) {
             continue;
         }
         if (err != ESP_OK) {
             return err;
         }
-        if (event.type == SX1276_LORA_EVENT_TX_DONE) {
+        if (event.type == E220_LORA_EVENT_TX_DONE) {
             return ESP_OK;
         }
     }
 
-    (void)sx1276_lora_start_rx_continuous();
+    (void)e220_lora_start_rx_continuous();
     return ESP_ERR_TIMEOUT;
 }
 
@@ -673,19 +663,20 @@ static void log_config_banner(const uint8_t self_mac[6])
     mac_to_str(self_mac, mac_buffer, sizeof(mac_buffer));
 
     ESP_LOGW(TAG, "========================================");
-    ESP_LOGW(TAG, "MODO TESTE LORA ATIVO");
+    ESP_LOGW(TAG, "MODO TESTE LORA ATIVO (EBYTE E220)");
     ESP_LOGW(TAG, "Role: %s", CONFIG_LORA_TEST_ROLE_ROOT ? "ROOT" : "NODE");
     ESP_LOGW(TAG, "MAC local: %s", mac_buffer);
-    ESP_LOGW(TAG, "Freq=%u MHz BW=%u kHz SF=%u TX=%d dBm CR=4/%u Preambulo=%u",
-             (unsigned)CONFIG_LORA_TEST_FREQUENCY_MHZ,
-             (unsigned)CONFIG_LORA_TEST_BANDWIDTH_KHZ,
-             (unsigned)CONFIG_LORA_TEST_SPREADING_FACTOR,
-             (int)CONFIG_LORA_TEST_TX_POWER_DBM,
-             (unsigned)(CONFIG_LORA_TEST_CODING_RATE + 4U),
-             (unsigned)CONFIG_LORA_TEST_PREAMBLE_LEN);
-    ESP_LOGW(TAG, "Pinos SX1276 CLK=%d MISO=%d MOSI=%d CS=%d RST=%d DIO0=%d",
-             LORA_TEST_PIN_SCK, LORA_TEST_PIN_MISO, LORA_TEST_PIN_MOSI,
-             LORA_TEST_PIN_CS, LORA_TEST_PIN_RST, LORA_TEST_PIN_DIO0);
+    ESP_LOGW(TAG, "Addr=0x%04X Canal=%u AirRate=%u TX=%d dBm WOR=%u ms RSSI_byte=%s",
+             (unsigned)CONFIG_FLOW_E220_ADDRESS,
+             (unsigned)CONFIG_FLOW_E220_CHANNEL,
+             (unsigned)CONFIG_FLOW_E220_AIR_DATA_RATE,
+             (int)CONFIG_FLOW_E220_TX_POWER_DBM,
+             (unsigned)CONFIG_FLOW_E220_WOR_PERIOD_MS,
+             CONFIG_FLOW_E220_RSSI_BYTE ? "on" : "off");
+    ESP_LOGW(TAG, "UART%d TX=%d RX=%d M0=%d M1=%d AUX=%d baud=%d",
+             CONFIG_FLOW_E220_UART_PORT, CONFIG_FLOW_E220_PIN_TX, CONFIG_FLOW_E220_PIN_RX,
+             CONFIG_FLOW_E220_PIN_M0, CONFIG_FLOW_E220_PIN_M1, CONFIG_FLOW_E220_PIN_AUX,
+             CONFIG_FLOW_E220_BAUD);
     ESP_LOGW(TAG, "========================================");
 }
 
@@ -719,29 +710,31 @@ static void log_root_summary(void)
 
 static esp_err_t init_lora_radio(void)
 {
-    sx1276_lora_config_t config = {
-        .spi_host = SPI2_HOST,
-        .pin_sck = LORA_TEST_PIN_SCK,
-        .pin_miso = LORA_TEST_PIN_MISO,
-        .pin_mosi = LORA_TEST_PIN_MOSI,
-        .pin_cs = LORA_TEST_PIN_CS,
-        .pin_rst = LORA_TEST_PIN_RST,
-        .pin_dio0 = LORA_TEST_PIN_DIO0,
+    e220_lora_config_t config = {
+        .uart_port = CONFIG_FLOW_E220_UART_PORT,
+        .pin_tx = CONFIG_FLOW_E220_PIN_TX,
+        .pin_rx = CONFIG_FLOW_E220_PIN_RX,
+        .pin_m0 = CONFIG_FLOW_E220_PIN_M0,
+        .pin_m1 = CONFIG_FLOW_E220_PIN_M1,
+        .pin_aux = CONFIG_FLOW_E220_PIN_AUX,
+        .baud = CONFIG_FLOW_E220_BAUD,
+        .address = (uint16_t)CONFIG_FLOW_E220_ADDRESS,
+        .channel = (uint8_t)CONFIG_FLOW_E220_CHANNEL,
+        .air_data_rate = (uint8_t)CONFIG_FLOW_E220_AIR_DATA_RATE,
+        .tx_power_dbm = (int8_t)CONFIG_FLOW_E220_TX_POWER_DBM,
+        .wor_period_ms = (uint16_t)CONFIG_FLOW_E220_WOR_PERIOD_MS,
+        .fixed_mode = CONFIG_FLOW_E220_FIXED_MODE,
+        .rssi_byte = CONFIG_FLOW_E220_RSSI_BYTE,
         .frequency_hz = LORA_TEST_FREQUENCY_HZ,
-        .bandwidth_hz = LORA_TEST_BANDWIDTH_HZ,
-        .spreading_factor = CONFIG_LORA_TEST_SPREADING_FACTOR,
-        .tx_power_dbm = CONFIG_LORA_TEST_TX_POWER_DBM,
-        .coding_rate  = CONFIG_LORA_TEST_CODING_RATE,
-        .preamble_len = CONFIG_LORA_TEST_PREAMBLE_LEN,
     };
 
-    esp_err_t err = sx1276_lora_init(&config);
+    esp_err_t err = e220_lora_init(&config);
     if (err != ESP_OK) {
         return err;
     }
 
-    sx1276_lora_debug_dump();
-    return sx1276_lora_start_rx_continuous();
+    e220_lora_debug_dump();
+    return e220_lora_start_rx_continuous();
 }
 
 static void __attribute__((unused)) run_root(const uint8_t self_mac[6])
@@ -762,8 +755,8 @@ static void __attribute__((unused)) run_root(const uint8_t self_mac[6])
         TickType_t wait = pdMS_TO_TICKS((remaining_summary_ms > 200) ? 200 :
                                         (remaining_summary_ms > 0 ? remaining_summary_ms : 1));
 
-        sx1276_lora_event_t event = {0};
-        esp_err_t err = sx1276_lora_receive_event(&event, wait);
+        e220_lora_event_t event = {0};
+        esp_err_t err = e220_lora_receive_event(&event, wait);
         if (err == ESP_ERR_TIMEOUT) {
             continue;
         }
@@ -771,8 +764,8 @@ static void __attribute__((unused)) run_root(const uint8_t self_mac[6])
             ESP_LOGW(TAG, "ROOT: erro ao aguardar evento: %s", esp_err_to_name(err));
             continue;
         }
-        if (event.type != SX1276_LORA_EVENT_RX_DONE) {
-            if (event.type == SX1276_LORA_EVENT_RX_ERROR) {
+        if (event.type != E220_LORA_EVENT_RX_DONE) {
+            if (event.type == E220_LORA_EVENT_RX_ERROR) {
                 ESP_LOGW(TAG, "ROOT: frame descartado por erro de RX");
             }
             continue;
@@ -831,8 +824,8 @@ static void __attribute__((unused)) run_root(const uint8_t self_mac[6])
         };
         memcpy(ack.mac, probe.mac, sizeof(ack.mac));
 
-        sx1276_lora_flush_events();
-        err = sx1276_lora_transmit((const uint8_t *)&ack, sizeof(ack));
+        e220_lora_flush_events();
+        err = e220_lora_transmit((const uint8_t *)&ack, sizeof(ack));
         if (err != ESP_OK) {
             ESP_LOGW(TAG, "ROOT: falha ao iniciar ACK para %s: %s", mac_buffer, esp_err_to_name(err));
             if (node != NULL) {
@@ -856,7 +849,7 @@ static void __attribute__((unused)) run_root(const uint8_t self_mac[6])
             /* Aguarda 500 ms antes de voltar ao RX para evitar que o proprio
              * sinal de TX do ACK interfira no proximo PROBE recebido. */
             vTaskDelay(pdMS_TO_TICKS(500));
-            sx1276_lora_flush_events();
+            e220_lora_flush_events();
         } else {
             ESP_LOGW(TAG, "ROOT: timeout aguardando TX_DONE do ACK para %s", mac_buffer);
             if (node != NULL) {
@@ -892,8 +885,8 @@ static void __attribute__((unused)) run_node(const uint8_t self_mac[6])
         s_node_view.last_ack_status = LORA_TEST_NODE_ACK_STATUS_TXWAIT;
         oled_render_node_view();
 
-        sx1276_lora_flush_events();
-        esp_err_t err = sx1276_lora_transmit((const uint8_t *)&probe, sizeof(probe));
+        e220_lora_flush_events();
+        esp_err_t err = e220_lora_transmit((const uint8_t *)&probe, sizeof(probe));
         if (err != ESP_OK) {
             ESP_LOGW(TAG, "NODE: falha ao iniciar PROBE seq=%lu: %s",
                      (unsigned long)probe.seq,
@@ -918,11 +911,11 @@ static void __attribute__((unused)) run_node(const uint8_t self_mac[6])
                 oled_render_node_view();
 
                 while (esp_timer_get_time() < ack_deadline_us) {
-                    sx1276_lora_event_t event = {0};
+                    e220_lora_event_t event = {0};
                     int64_t remaining_ms = (ack_deadline_us - esp_timer_get_time()) / 1000LL;
                     TickType_t wait = pdMS_TO_TICKS((remaining_ms > 100) ? 100 :
                                                     (remaining_ms > 0 ? remaining_ms : 1));
-                    err = sx1276_lora_receive_event(&event, wait);
+                    err = e220_lora_receive_event(&event, wait);
                     if (err == ESP_ERR_TIMEOUT) {
                         continue;
                     }
@@ -933,7 +926,7 @@ static void __attribute__((unused)) run_node(const uint8_t self_mac[6])
                         ack_wait_error = true;
                         break;
                     }
-                    if (event.type != SX1276_LORA_EVENT_RX_DONE) {
+                    if (event.type != E220_LORA_EVENT_RX_DONE) {
                         continue;
                     }
                     if (event.payload_len != sizeof(lora_ack_frame_t)) {

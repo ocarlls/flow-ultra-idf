@@ -10,7 +10,7 @@
 #include "flow_packet.h"
 #include "lora_test_config.h"
 #include "mesh_dedup.h"
-#include "sx1276_lora.h"
+#include "e220_lora.h"
 
 static const char *TAG = "FLOW_ROOT";
 
@@ -38,25 +38,27 @@ static void mac_to_str(const uint8_t mac[6], char *buffer, size_t buffer_len)
 
 static esp_err_t init_lora_radio(void)
 {
-    sx1276_lora_config_t config = {
-        .spi_host = SPI2_HOST,
-        .pin_sck = LORA_TEST_PIN_SCK,
-        .pin_miso = LORA_TEST_PIN_MISO,
-        .pin_mosi = LORA_TEST_PIN_MOSI,
-        .pin_cs = LORA_TEST_PIN_CS,
-        .pin_rst = LORA_TEST_PIN_RST,
-        .pin_dio0 = LORA_TEST_PIN_DIO0,
+    e220_lora_config_t config = {
+        .uart_port = CONFIG_FLOW_E220_UART_PORT,
+        .pin_tx = CONFIG_FLOW_E220_PIN_TX,
+        .pin_rx = CONFIG_FLOW_E220_PIN_RX,
+        .pin_m0 = CONFIG_FLOW_E220_PIN_M0,
+        .pin_m1 = CONFIG_FLOW_E220_PIN_M1,
+        .pin_aux = CONFIG_FLOW_E220_PIN_AUX,
+        .baud = CONFIG_FLOW_E220_BAUD,
+        .address = (uint16_t)CONFIG_FLOW_E220_ADDRESS,
+        .channel = (uint8_t)CONFIG_FLOW_E220_CHANNEL,
+        .air_data_rate = (uint8_t)CONFIG_FLOW_E220_AIR_DATA_RATE,
+        .tx_power_dbm = (int8_t)CONFIG_FLOW_E220_TX_POWER_DBM,
+        .wor_period_ms = (uint16_t)CONFIG_FLOW_E220_WOR_PERIOD_MS,
+        .fixed_mode = CONFIG_FLOW_E220_FIXED_MODE,
+        .rssi_byte = CONFIG_FLOW_E220_RSSI_BYTE,
         .frequency_hz = LORA_TEST_FREQUENCY_HZ,
-        .bandwidth_hz = LORA_TEST_BANDWIDTH_HZ,
-        .spreading_factor = CONFIG_LORA_TEST_SPREADING_FACTOR,
-        .tx_power_dbm = CONFIG_LORA_TEST_TX_POWER_DBM,
-        .coding_rate = CONFIG_LORA_TEST_CODING_RATE,
-        .preamble_len = CONFIG_LORA_TEST_PREAMBLE_LEN,
     };
 
-    ESP_RETURN_ON_ERROR(sx1276_lora_init(&config), TAG, "sx1276 init");
-    sx1276_lora_flush_events();
-    return sx1276_lora_start_rx_continuous();
+    ESP_RETURN_ON_ERROR(e220_lora_init(&config), TAG, "e220 init");
+    e220_lora_flush_events();
+    return e220_lora_start_rx_continuous();
 }
 
 static void log_packet(const flow_packet_t *pkt, bool crc_ok)
@@ -111,7 +113,7 @@ static void send_ack(const flow_packet_t *rx_pkt)
 
     flow_packet_update_crc32(&ack);
     vTaskDelay(pdMS_TO_TICKS(FLOW_ACK_DELAY_MS));
-    esp_err_t err = sx1276_lora_transmit((const uint8_t *)&ack, sizeof(ack));
+    esp_err_t err = e220_lora_transmit((const uint8_t *)&ack, sizeof(ack));
     if (err == ESP_OK) {
         ESP_LOGI(TAG, "ACK TX seq=%lu subroot=%02X:%02X:%02X:%02X:%02X:%02X",
                  (unsigned long)ack.sequence,
@@ -132,8 +134,8 @@ void root_node_run(void)
     ESP_LOGW(TAG, "MODO FLOW MESH: ROOT ativo (LoRa %uMHz)", (unsigned)CONFIG_LORA_TEST_FREQUENCY_MHZ);
 
     while (1) {
-        sx1276_lora_event_t event = {0};
-        esp_err_t err = sx1276_lora_receive_event(&event, pdMS_TO_TICKS(200));
+        e220_lora_event_t event = {0};
+        esp_err_t err = e220_lora_receive_event(&event, pdMS_TO_TICKS(200));
         if (err == ESP_ERR_TIMEOUT) {
             vTaskDelay(pdMS_TO_TICKS(10));
             continue;
@@ -142,7 +144,7 @@ void root_node_run(void)
             vTaskDelay(pdMS_TO_TICKS(10));
             continue;
         }
-        if (event.type != SX1276_LORA_EVENT_RX_DONE) {
+        if (event.type != E220_LORA_EVENT_RX_DONE) {
             vTaskDelay(pdMS_TO_TICKS(10));
             continue;
         }

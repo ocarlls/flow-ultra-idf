@@ -21,7 +21,16 @@
       "Bash(grep -iA3 -B1 -E \"RX listening|Wi-Fi RX|RF receiving|receiving|Modem-sleep current|Light-sleep.*mA|Light-sleep.*µA\")",
       "Bash(pdftotext -layout webfetch-1782219483569-4ro3fa.pdf -)",
       "Bash(grep -iA40 \"Current Consumption\")",
-      "Bash(grep -iA45 \"Table 5-4. Current Consumption Depending on RF\")"
+      "Bash(grep -iA45 \"Table 5-4. Current Consumption Depending on RF\")",
+      "Read(//Users/carlos/esp/v5.5.1/**)",
+      "Read(//dev/**)",
+      "Bash(ps -p 16599 -o pid,ppid,command)",
+      "Bash(kill 16599)",
+      "Bash(kill -9 16599)",
+      "Bash(grep -v \":0$\")",
+      "Bash(awk -F: '{print $1}')",
+      "Bash(git rm *)",
+      "Bash(sed -i '' '1,188d' main/Kconfig)"
     ]
   }
 }

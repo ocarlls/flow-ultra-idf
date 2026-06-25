@@ -5,15 +5,15 @@ extern "C" {
 #endif
 
 /*
- * Modo de TESTE de consumo de transmissao (Fase 1).
+ * Modo de operacao do node METER da malha (sem sensor/SPI).
  *
- * Gera pacotes flow_packet_t SINTETICOS (sem AS6031/SPI) e os transmite por
- * ESP-NOW para medir o consumo SOMENTE da transmissao de dados.
+ * O ESP fica em LIGHT SLEEP com o WiFi ligado e o radio em duty-cycle
+ * connectionless (wake-on-radio por WiFi). Ele NAO origina dados: dorme ate
+ * captar um pacote ESP-NOW numa janela de escuta e, ao receber, acorda,
+ * reencaminha (relay) para o proximo node e volta a dormir.
  *
- * Selecionado em build time por CONFIG_FLOW_METER_TX_TEST. A estrategia de
- * sleep e escolhida por CONFIG_FLOW_METER_LIGHT_SLEEP:
- *   - y: light sleep + WiFi connectionless duty-cycled (recebe/relay dormindo)
- *   - n: baseline deep sleep so-transmissao (transmissor cego)
+ * Selecionado em build time por CONFIG_FLOW_METER_TX_TEST. O light sleep real
+ * exige CONFIG_PM_ENABLE + CONFIG_FREERTOS_USE_TICKLESS_IDLE.
  *
  * Nunca retorna.
  */

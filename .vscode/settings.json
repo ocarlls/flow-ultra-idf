@@ -3,7 +3,7 @@
   "idf.openOcdConfigs": [
     "board/esp32-bridge.cfg"
   ],
-  "idf.port": "/dev/tty.usbserial-31110",
+  "idf.port": "/dev/tty.usbserial-11110",
   "idf.currentSetup": "/Users/carlos/esp/v5.5.1/esp-idf",
   "idf.customExtraVars": {
     "IDF_TARGET": "esp32c6"

@@ -1,3 +1,4 @@
+#include "sdkconfig.h"
 #include "meter_tx_test.h"
 
 #if CONFIG_FLOW_METER_TX_TEST
@@ -18,22 +19,20 @@
 #if CONFIG_PM_ENABLE
 #include "esp_pm.h"
 #endif
-#if !CONFIG_FLOW_METER_LIGHT_SLEEP
-#include "esp_sleep.h"
-#endif
 
 #include "flow_packet.h"
 #include "mesh_dedup.h"
 
-static const char *TAG = "FLOW_TXTEST";
+static const char *TAG = "FLOW_NODE";
 
-#define FLOW_ESPNOW_CHANNEL 1
+#define FLOW_ESPNOW_CHANNEL         1
 #define FLOW_METER_MAX_FORWARD_HOPS 4
-#define FLOW_TX_QUEUE_LEN 8
+#define FLOW_TX_QUEUE_LEN           8
 
-// Wake window / interval do duty-cycle connectionless do WiFi.
-// NOTA: a unidade do esp_now_set_wake_window / connectionless_wake_interval e
-// proxima de 1 ms (1024 us); para o teste tratamos os valores como ms.
+// Wake-on-radio por WiFi: o radio acorda FLOW_LS_WINDOW_MS a cada
+// FLOW_LS_INTERVAL_MS para escutar ESP-NOW connectionless. A unidade real do
+// esp_now_set_wake_window / connectionless_wake_interval e proxima de 1 ms
+// (1024 us); aqui tratamos os valores como ms.
 #define FLOW_LS_WINDOW_MS   CONFIG_FLOW_LS_WAKE_WINDOW_MS
 #define FLOW_LS_INTERVAL_MS CONFIG_FLOW_LS_WAKE_INTERVAL_MS
 
@@ -41,18 +40,15 @@ static const uint8_t s_bcast[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 static uint8_t s_self_mac[6] = {0};
 
 static struct {
-    uint32_t tx_originated;
-    uint32_t tx_sends_total;
+    uint32_t tx_sends_total;   // copias enviadas (relay em burst)
     uint32_t tx_send_err;
-    uint32_t rx_valid;
-    uint32_t rx_relayed;
-    uint32_t dups;
+    uint32_t rx_valid;         // pacotes validos recebidos
+    uint32_t rx_relayed;       // pacotes enfileirados para reencaminhamento
+    uint32_t dups;             // descartados por dedup
 } s_stats;
 
-#if CONFIG_FLOW_METER_LIGHT_SLEEP
 static mesh_dedup_table_t s_dedup = {0};
 static QueueHandle_t s_tx_queue = NULL;
-#endif
 
 // ===========================================================================
 // Callbacks ESP-NOW
@@ -63,7 +59,8 @@ static void on_espnow_send(const wifi_tx_info_t *tx_info, esp_now_send_status_t 
     (void)status;
 }
 
-#if CONFIG_FLOW_METER_LIGHT_SLEEP
+// Chamado quando o radio capta um pacote durante a janela de escuta. NAO
+// bloquear aqui: valida, deduplica e defere o relay para a task principal.
 static void on_espnow_recv(const esp_now_recv_info_t *recv_info, const uint8_t *data, int len)
 {
     (void)recv_info;
@@ -93,19 +90,18 @@ static void on_espnow_recv(const esp_now_recv_info_t *recv_info, const uint8_t *
         return;
     }
 
-    // Encaminha em burst (defere para a task de TX; NAO bloquear no callback).
+    // Reencaminha em burst (defere para a task de relay; NAO bloquear no callback).
     pkt.hop_count++;
     flow_packet_update_crc32(&pkt);
     if (s_tx_queue != NULL && xQueueSend(s_tx_queue, &pkt, 0) == pdTRUE) {
         s_stats.rx_relayed++;
     }
 }
-#endif
 
 // ===========================================================================
-// Inicializacao Wi-Fi + ESP-NOW (sem deinit no loop)
+// Inicializacao Wi-Fi + ESP-NOW (sobe uma vez e fica vivo o tempo todo)
 // ===========================================================================
-static esp_err_t init_wifi_espnow(bool register_recv)
+static esp_err_t init_wifi_espnow(void)
 {
     esp_err_t err = esp_netif_init();
     if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
@@ -125,13 +121,7 @@ static esp_err_t init_wifi_espnow(bool register_recv)
 
     if ((err = esp_now_init()) != ESP_OK) return err;
     if ((err = esp_now_register_send_cb(on_espnow_send)) != ESP_OK) return err;
-#if CONFIG_FLOW_METER_LIGHT_SLEEP
-    if (register_recv) {
-        if ((err = esp_now_register_recv_cb(on_espnow_recv)) != ESP_OK) return err;
-    }
-#else
-    (void)register_recv;
-#endif
+    if ((err = esp_now_register_recv_cb(on_espnow_recv)) != ESP_OK) return err;
 
     esp_now_peer_info_t peer = {0};
     memcpy(peer.peer_addr, s_bcast, ESP_NOW_ETH_ALEN);
@@ -146,25 +136,10 @@ static esp_err_t init_wifi_espnow(bool register_recv)
 }
 
 // ===========================================================================
-// Pacote sintetico + burst de transmissao
+// Relay em burst: repete o pacote ao longo de >= 1 intervalo de escuta do
+// proximo node, para cair em alguma janela sem depender de sincronia de relogio.
 // ===========================================================================
-static void build_synthetic(flow_packet_t *pkt, uint32_t seq)
-{
-    flow_packet_init_empty(pkt);
-    pkt->type = FLOW_PKT_TYPE_METER_DATA;
-    pkt->sequence = seq;
-    memcpy(pkt->meter_id, s_self_mac, sizeof(pkt->meter_id));
-    pkt->volume_liters = seq;   // dummy crescente
-    pkt->delta_liters = 1;      // dummy
-    pkt->timestamp_ms = esp_timer_get_time() / 1000LL;
-    pkt->battery_pct = 100;
-    pkt->hop_count = 0;
-    flow_packet_update_crc32(pkt);
-}
-
-// Repete o mesmo pacote ao longo de >= 1 intervalo de escuta do receptor, para
-// cair em alguma janela sem depender de sincronia de relogio entre os nos.
-static void transmit_burst(const flow_packet_t *pkt)
+static void relay_burst(const flow_packet_t *pkt)
 {
     int copies = CONFIG_FLOW_LS_TX_BURST_MS / CONFIG_FLOW_LS_TX_SPACING_MS;
     if (copies < 1) {
@@ -180,37 +155,26 @@ static void transmit_burst(const flow_packet_t *pkt)
     }
 }
 
-#if CONFIG_FLOW_LS_VERBOSE
-static void log_stats(int64_t *last_us)
+// ===========================================================================
+// Entry point — node em LIGHT SLEEP com WiFi ligado.
+// Fica dormindo ate o radio captar um pacote; ao receber, acorda, reencaminha
+// para o proximo node e volta a dormir. Nunca origina dados proprios.
+// ===========================================================================
+void meter_tx_test_run(void)
 {
-    const int64_t now = esp_timer_get_time();
-    if ((now - *last_us) < ((int64_t)CONFIG_FLOW_LS_STATS_INTERVAL_S * 1000000LL)) {
+    memset(&s_stats, 0, sizeof(s_stats));
+    mesh_dedup_init(&s_dedup);
+
+    s_tx_queue = xQueueCreate(FLOW_TX_QUEUE_LEN, sizeof(flow_packet_t));
+    if (s_tx_queue == NULL) {
+        ESP_LOGE(TAG, "Falha ao criar fila de relay");
         return;
     }
-    *last_us = now;
-    ESP_LOGI(TAG,
-             "STATS orig=%lu sends=%lu err=%lu rx=%lu relay=%lu dups=%lu up=%llds",
-             (unsigned long)s_stats.tx_originated,
-             (unsigned long)s_stats.tx_sends_total,
-             (unsigned long)s_stats.tx_send_err,
-             (unsigned long)s_stats.rx_valid,
-             (unsigned long)s_stats.rx_relayed,
-             (unsigned long)s_stats.dups,
-             (long long)(now / 1000000LL));
-}
-#endif
 
-// ===========================================================================
-// Variante LIGHT SLEEP: WiFi vivo + connectionless duty-cycle + burst
-// ===========================================================================
-#if CONFIG_FLOW_METER_LIGHT_SLEEP
-static void run_light_sleep(void)
-{
-    mesh_dedup_init(&s_dedup);
-    ESP_ERROR_CHECK(init_wifi_espnow(true));
+    ESP_ERROR_CHECK(init_wifi_espnow());
     (void)esp_read_mac(s_self_mac, ESP_MAC_WIFI_STA);
 
-    // Power save connectionless: radio acorda FLOW_LS_WINDOW_MS a cada
+    // Power save connectionless: o radio acorda FLOW_LS_WINDOW_MS a cada
     // FLOW_LS_INTERVAL_MS (chamar DEPOIS de esp_wifi_start()).
     esp_err_t err = esp_wifi_set_ps(WIFI_PS_MAX_MODEM);
     if (err != ESP_OK) {
@@ -227,6 +191,8 @@ static void run_light_sleep(void)
     }
 
 #if CONFIG_PM_ENABLE
+    // Light sleep automatico: no idle do FreeRTOS (task bloqueada na fila), a CPU
+    // entra em light sleep; o WiFi faz o duty-cycle das janelas de escuta sozinho.
     esp_pm_config_t pm = {
         .max_freq_mhz = 160,
         .min_freq_mhz = 10,
@@ -237,94 +203,37 @@ static void run_light_sleep(void)
         ESP_LOGW(TAG, "esp_pm_configure falhou: %s", esp_err_to_name(err));
     }
 #else
-    ESP_LOGW(TAG, "CONFIG_PM_ENABLE desligado: sem automatic light sleep (so modem-sleep)");
+    ESP_LOGE(TAG, "CONFIG_PM_ENABLE desligado: o node NAO entra em light sleep "
+                  "(so modem-sleep). Habilite CONFIG_PM_ENABLE + "
+                  "CONFIG_FREERTOS_USE_TICKLESS_IDLE.");
 #endif
 
-    s_tx_queue = xQueueCreate(FLOW_TX_QUEUE_LEN, sizeof(flow_packet_t));
-    if (s_tx_queue == NULL) {
-        ESP_LOGE(TAG, "Falha ao criar fila de TX");
-        return;
-    }
-
-    ESP_LOGW(TAG,
-             "TXTEST LIGHT SLEEP ativo: window=%dms interval=%dms burst=%dms spacing=%dms period=%dms",
+    ESP_LOGW(TAG, "NODE relay em light sleep: window=%dms interval=%dms burst=%dms spacing=%dms",
              FLOW_LS_WINDOW_MS, FLOW_LS_INTERVAL_MS,
-             CONFIG_FLOW_LS_TX_BURST_MS, CONFIG_FLOW_LS_TX_SPACING_MS,
-             CONFIG_FLOW_LS_TX_PERIOD_MS);
+             CONFIG_FLOW_LS_TX_BURST_MS, CONFIG_FLOW_LS_TX_SPACING_MS);
 
-    uint32_t seq = 0;
-    int64_t last_stats_us = esp_timer_get_time();
-    flow_packet_t pkt;
-
-    // Em idle (bloqueado na fila), o FreeRTOS tickless entra em light sleep e o
-    // WiFi faz o duty-cycle das janelas de escuta automaticamente.
+    // Bloqueia indefinidamente na fila: sem pacote, o tickless idle mantem a CPU
+    // em light sleep. Ao chegar um relay (enfileirado pelo callback de RX), acorda,
+    // retransmite em burst e volta a dormir.
+    flow_packet_t relay;
     while (1) {
-        flow_packet_t relay;
-        if (xQueueReceive(s_tx_queue, &relay, pdMS_TO_TICKS(CONFIG_FLOW_LS_TX_PERIOD_MS)) == pdTRUE) {
-            transmit_burst(&relay);
-        } else {
-            build_synthetic(&pkt, ++seq);
-            // Registra o proprio pacote no dedup para nao reencaminhar o eco.
-            (void)mesh_dedup_is_duplicate(&s_dedup, pkt.meter_id, pkt.sequence,
-                                          pkt.type, pkt.timestamp_ms);
-            transmit_burst(&pkt);
-            s_stats.tx_originated++;
+        if (xQueueReceive(s_tx_queue, &relay, portMAX_DELAY) == pdTRUE) {
+            relay_burst(&relay);
+#if CONFIG_FLOW_LS_VERBOSE
+            ESP_LOGI(TAG,
+                     "RELAY meter=%02X%02X%02X%02X%02X%02X seq=%lu hop=%u | "
+                     "rx=%lu relay=%lu dups=%lu sends=%lu err=%lu",
+                     relay.meter_id[0], relay.meter_id[1], relay.meter_id[2],
+                     relay.meter_id[3], relay.meter_id[4], relay.meter_id[5],
+                     (unsigned long)relay.sequence, (unsigned)relay.hop_count,
+                     (unsigned long)s_stats.rx_valid,
+                     (unsigned long)s_stats.rx_relayed,
+                     (unsigned long)s_stats.dups,
+                     (unsigned long)s_stats.tx_sends_total,
+                     (unsigned long)s_stats.tx_send_err);
+#endif
         }
-#if CONFIG_FLOW_LS_VERBOSE
-        log_stats(&last_stats_us);
-#else
-        (void)last_stats_us;
-#endif
     }
-}
-#endif /* CONFIG_FLOW_METER_LIGHT_SLEEP */
-
-// ===========================================================================
-// Variante BASELINE: deep sleep so-transmissao (transmissor cego)
-// ===========================================================================
-#if !CONFIG_FLOW_METER_LIGHT_SLEEP
-RTC_DATA_ATTR static uint32_t s_rtc_seq = 0;
-
-static void run_deep_sleep_baseline(void)
-{
-    ESP_ERROR_CHECK(init_wifi_espnow(false));
-    (void)esp_read_mac(s_self_mac, ESP_MAC_WIFI_STA);
-
-    flow_packet_t pkt;
-    build_synthetic(&pkt, ++s_rtc_seq);
-
-    // Burst cobrindo um intervalo, para um receptor duty-cycled captar.
-    transmit_burst(&pkt);
-    s_stats.tx_originated++;
-
-#if CONFIG_FLOW_LS_VERBOSE
-    ESP_LOGI(TAG, "TXTEST DEEP baseline: seq=%lu sends=%lu err=%lu -> sleep %dms",
-             (unsigned long)s_rtc_seq,
-             (unsigned long)s_stats.tx_sends_total,
-             (unsigned long)s_stats.tx_send_err,
-             CONFIG_FLOW_LS_TX_PERIOD_MS);
-#endif
-
-    esp_wifi_stop();
-    esp_wifi_deinit();
-
-    esp_sleep_enable_timer_wakeup((uint64_t)CONFIG_FLOW_LS_TX_PERIOD_MS * 1000ULL);
-    esp_deep_sleep_start();
-    // nunca retorna
-}
-#endif /* !CONFIG_FLOW_METER_LIGHT_SLEEP */
-
-// ===========================================================================
-// Entry point
-// ===========================================================================
-void meter_tx_test_run(void)
-{
-    memset(&s_stats, 0, sizeof(s_stats));
-#if CONFIG_FLOW_METER_LIGHT_SLEEP
-    run_light_sleep();
-#else
-    run_deep_sleep_baseline();
-#endif
 }
 
 #endif /* CONFIG_FLOW_METER_TX_TEST */

@@ -731,8 +731,8 @@ static void subroot_scheduled_run(void)
             ESP_LOGW(TAG, "BEACON perdido (misses=%u)", (unsigned)s_rtc_misses);
             if (s_rtc_misses >= CONFIG_FLOW_SCAN_AFTER_MISSES) {
                 uint32_t retry = (uint32_t)CONFIG_FLOW_RESYNC_PERIOD_S * 1000U / 4U;
-                if (retry < 60000U) {
-                    retry = 60000U;
+                if (retry < 10000U) {
+                    retry = 10000U;
                 }
                 subroot_schedule_and_sleep(WAKE_SCAN, retry, 0);
             } else {
@@ -740,7 +740,7 @@ static void subroot_scheduled_run(void)
                     esp_timer_get_time() / 1000LL - wake_at - s_rtc_guard_ms;
                 uint32_t sync_in = (uint32_t)CONFIG_FLOW_RESYNC_PERIOD_S * 1000U;
                 sync_in = (sync_in > (uint32_t)elapsed_evt)
-                              ? sync_in - (uint32_t)elapsed_evt : 60000U;
+                              ? sync_in - (uint32_t)elapsed_evt : 10000U;
                 subroot_schedule_and_sleep(WAKE_SYNC, sync_in, 0);
             }
         }

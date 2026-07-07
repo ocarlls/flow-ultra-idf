@@ -30,7 +30,29 @@
       "Bash(grep -v \":0$\")",
       "Bash(awk -F: '{print $1}')",
       "Bash(git rm *)",
-      "Bash(sed -i '' '1,188d' main/Kconfig)"
+      "Bash(sed -i '' '1,188d' main/Kconfig)",
+      "Bash(git log *)",
+      "Skill(run)",
+      "Skill(run:*)",
+      "Bash(which idf.py 2>/dev/null || find /Users/carlos -name \"idf.py\" -maxdepth 5 2>/dev/null | head -5)",
+      "Read(//Users/carlos/**)",
+      "Read(//Users/carlos/esp/v5.5.1/esp-idf/**)",
+      "Bash(bash -c 'source /Users/carlos/esp/v5.5.1/esp-idf/export.sh 2>&1 && idf.py --version')",
+      "Bash(bash -c 'source /Users/carlos/esp/v5.5.1/esp-idf/export.sh 2>/dev/null && idf.py build 2>&1')",
+      "Bash(bash -c 'source /Users/carlos/esp/v5.5.1/esp-idf/export.sh 2>/dev/null && idf.py fullclean 2>&1 && echo \"=== CLEAN OK ===\"')",
+      "Bash(bash -c 'source /Users/carlos/esp/v5.5.1/esp-idf/export.sh 2>/dev/null && idf.py -p /dev/cu.usbserial-11110 flash 2>&1')",
+      "Bash(kill 81915)",
+      "Bash(kill 91437)",
+      "Bash(awk 'NR>1{print $2}')",
+      "Bash(xargs kill)",
+      "Bash(bash -c 'source /Users/carlos/esp/v5.5.1/esp-idf/export.sh 2>/dev/null && python -m esptool --chip esp32c6 -p /dev/cu.usbserial-11110 -b 115200 --before default_reset --after hard_reset write_flash --flash_mode dio --flash_freq 80m --flash_size 2MB 0x0 build/bootloader/bootloader.bin 0x8000 build/partition_table/partition-table.bin 0x10000 build/flow-ultra.bin 2>&1')",
+      "Bash(ls /dev/cu.usbserial* /dev/tty.usbserial* 2>/dev/null)",
+      "Bash(bash -c 'source /Users/carlos/esp/v5.5.1/esp-idf/export.sh 2>/dev/null && python -m esptool --chip esp32c6 -p /dev/cu.usbserial-11110 -b 115200 --before default_reset --after hard_reset write_flash --flash_mode dio --flash_freq 80m --flash_size 2MB 0x0 /Users/carlos/flow-ultra/build/bootloader/bootloader.bin 0x8000 /Users/carlos/flow-ultra/build/partition_table/partition-table.bin 0x10000 /Users/carlos/flow-ultra/build/flow-ultra.bin 2>&1')",
+      "Bash(bash -c 'source /Users/carlos/esp/v5.5.1/esp-idf/export.sh 2>/dev/null && idf.py build 2>&1 | tail -15')",
+      "Bash(bash -c 'source /Users/carlos/esp/v5.5.1/esp-idf/export.sh 2>/dev/null && idf.py set-target esp32 2>&1')",
+      "Bash(bash -c 'source /Users/carlos/esp/v5.5.1/esp-idf/export.sh 2>/dev/null && python -m esptool --chip esp32 -p /dev/cu.usbserial-11110 -b 115200 --before default_reset --after hard_reset write_flash --flash_mode dio --flash_freq 40m --flash_size 2MB 0x1000 /Users/carlos/flow-ultra/build/bootloader/bootloader.bin 0x8000 /Users/carlos/flow-ultra/build/partition_table/partition-table.bin 0x10000 /Users/carlos/flow-ultra/build/flow-ultra.bin 2>&1')",
+      "Bash(bash -c 'source /Users/carlos/esp/v5.5.1/esp-idf/export.sh 2>/dev/null && python -m esptool --chip auto -p /dev/cu.usbserial-11110 -b 115200 chip_id 2>&1')",
+      "Bash(bash -c 'source /Users/carlos/esp/v5.5.1/esp-idf/export.sh 2>/dev/null && python -m esptool --chip esp32 -p /dev/cu.usbserial-11110 -b 115200 --before no_reset write_flash --flash_mode dio --flash_freq 40m --flash_size 2MB 0x1000 /Users/carlos/flow-ultra/build/bootloader/bootloader.bin 0x8000 /Users/carlos/flow-ultra/build/partition_table/partition-table.bin 0x10000 /Users/carlos/flow-ultra/build/flow-ultra.bin 2>&1')"
     ]
   }
 }

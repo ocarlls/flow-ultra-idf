@@ -48,6 +48,11 @@ typedef struct {
     bool     fixed_mode;     /* false = transparente (recomendado) */
     bool     rssi_byte;      /* true = E220 anexa byte de RSSI ao pacote RX */
 
+    /* true = pula a gravacao de registradores no init (eles sao nao-volateis
+     * no E220; num re-wake de deep sleep a config do cold boot ainda vale).
+     * Economiza ~50-100 ms (e ate ~1,5 s de timeouts) por acordada. */
+    bool     skip_radio_config;
+
     uint32_t frequency_hz;   /* apenas para log */
 } e220_lora_config_t;
 
@@ -62,6 +67,16 @@ typedef struct {
 esp_err_t e220_lora_init(const e220_lora_config_t *config);
 esp_err_t e220_lora_deinit(void);
 esp_err_t e220_lora_start_rx_continuous(void);
+
+/* Poe o radio em sleep (M0=M1=1, ~2 uA). Registradores sao retidos.
+ * Acordar: e220_lora_start_rx_continuous() (volta ao modo normal). */
+esp_err_t e220_lora_sleep(void);
+
+/* Prepara o E220 para o deep sleep do ESP: radio em sleep + hold dos pinos
+ * M0/M1 (senao os GPIOs flutuam no deep sleep e o E220 volta sozinho a RX
+ * continuo, ~10-12 mA). Chamar imediatamente antes de esp_deep_sleep_start().
+ * O proximo e220_lora_init() solta os holds automaticamente. */
+esp_err_t e220_lora_prepare_deep_sleep(void);
 esp_err_t e220_lora_transmit(const uint8_t *payload, size_t payload_len);
 esp_err_t e220_lora_receive_event(e220_lora_event_t *event, TickType_t timeout);
 void e220_lora_flush_events(void);

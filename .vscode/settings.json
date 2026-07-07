@@ -1,21 +1,18 @@
 {
   "C_Cpp.intelliSenseEngine": "default",
-  "idf.openOcdConfigs": [
-    "board/esp32-bridge.cfg"
-  ],
-  "idf.port": "/dev/tty.usbserial-11110",
-  "idf.currentSetup": "/Users/carlos/esp/v5.5.1/esp-idf",
-  "idf.customExtraVars": {
-    "IDF_TARGET": "esp32c6"
-  },
   "clangd.path": "/Users/carlos/.espressif/tools/esp-clang/esp-19.1.2_20250312/esp-clang/bin/clangd",
   "clangd.arguments": [
     "--background-index",
     "--query-driver=**",
     "--compile-commands-dir=/Users/carlos/flow-ultra/build"
   ],
+  "idf.customExtraVars": {
+    "IDF_PATH": "/Users/carlos/esp/esp-idf",
+    "IDF_TOOLS_PATH": "/Users/carlos/.espressif",
+    "IDF_PYTHON_ENV_PATH": "/Users/carlos/.espressif/python_env/idf5.4_py3.14_env",
+    "PYTHON": "/Users/carlos/.espressif/python_env/idf5.4_py3.14_env/bin/python3"
+  },
   "idf.flashType": "UART",
-  "idf.enableSizeTaskAfterBuildTask": false,
   "cmake.configureOnOpen": false,
   "cmake.automaticReconfigure": false,
   "cmake.autoSelectActiveFolder": false,
@@ -27,5 +24,11 @@
         "-l"
       ]
     }
-  }
+  },
+  "idf.openOcdConfigs": [
+    "board/esp32c6-ftdi.cfg"
+  ],
+  "idf.adapterTargetName": "esp32c6",
+  "idf.currentSetup": "/Users/carlos/esp/esp-idf",
+  "idf.port": "/dev/tty.usbserial-11110"
 }

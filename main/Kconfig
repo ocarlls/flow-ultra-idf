@@ -125,6 +125,212 @@ menu "Flow Mesh Network"
         default y
         depends on FLOW_METER_TX_TEST || FLOW_SUBROOT_LIGHT_SLEEP
 
+    # -----------------------------------------------------------------------
+    # Protocolo mesh agendado (deep sleep + sync por beacon + descoberta)
+    # Ver PROTOCOLO_MESH_AGENDADO.md
+    # -----------------------------------------------------------------------
+    config FLOW_COLLECT_HOUR
+        int "Coleta de dados: hora-base (0-23)"
+        range 0 23
+        default 16
+        depends on FLOW_MESH_MODE
+
+    config FLOW_COLLECT_MIN
+        int "Coleta de dados: minuto-base (0-59)"
+        range 0 59
+        default 30
+        depends on FLOW_MESH_MODE
+
+    config FLOW_RESYNC_PERIOD_S
+        int "Sync: periodo entre re-sincronizacoes (s)"
+        range 60 86400
+        default 10800
+        depends on FLOW_MESH_MODE
+        help
+            Sem cristal 32 kHz, re-sincronizar com frequencia (ex.: 3 h) limita a
+            deriva do RC. Com cristal, pode subir para 86400 (1x/dia).
+
+    config FLOW_COLLECT_PERIOD_S
+        int "Coleta: periodo entre janelas de coleta (s)"
+        range 60 86400
+        default 86400
+        depends on FLOW_MESH_MODE
+        help
+            Sem RTC/GPS no root, a coleta e periodica a partir do boot do root
+            (placeholder). Com RTC, o root ancora em COLLECT_HOUR:COLLECT_MIN e
+            este parametro deixa de ser usado. Em bancada use valores curtos
+            (ex.: 300 s) para validar o convergecast rapidamente.
+
+    # --- Burst de beacon (redundancia temporal p/ janelas dormentes) ---
+    config FLOW_BEACON_BURST_MS
+        int "Sync: duracao do burst de beacons na janela de sync (ms)"
+        range 1000 60000
+        default 10000
+        depends on FLOW_MESH_MODE
+        help
+            O root (e cada subroot ao repassar) repete o beacon durante esta
+            janela. Filhos que acordam dentro dela captam alguma copia mesmo
+            com erro residual de relogio.
+
+    config FLOW_BEACON_SPACING_MS
+        int "Sync: espacamento entre beacons do burst (ms)"
+        range 100 5000
+        default 500
+        depends on FLOW_MESH_MODE
+        help
+            Airtime do beacon LoRa (42 B) a ~2,4 kbps e ~150-250 ms; 500 ms de
+            espacamento deixa folga p/ RX e nao satura o canal.
+
+    config FLOW_DISCOVERY_PERIOD_S
+        int "Descoberta: periodo do beacon esparso do root fora do burst (s)"
+        range 5 600
+        default 30
+        depends on FLOW_MESH_MODE
+        help
+            Fora das janelas de sync o root emite 1 beacon a cada N s para que
+            nos em cold boot/SCAN achem a rede em <= N s de escuta e aprendam a
+            agenda inteira (o beacon carrega next_sync/next_collect).
+
+    # --- Guarda adaptativa (deriva do RC estimada em tempo de execucao) ---
+    config FLOW_GUARD_MIN_MS
+        int "Guarda: piso (ms)"
+        range 100 60000
+        default 2000
+        depends on FLOW_MESH_MODE
+
+    config FLOW_GUARD_MAX_MS
+        int "Guarda: teto (ms)"
+        range 1000 3600000
+        default 120000
+        depends on FLOW_MESH_MODE
+
+    config FLOW_DRIFT_INIT_PPM
+        int "Deriva: incerteza inicial do relogio (ppm)"
+        range 100 100000
+        default 30000
+        depends on FLOW_MESH_MODE
+        help
+            30000 ppm = 3%, pior caso do RC interno sem calibracao termica.
+            Com cristal 32 kHz, reduza para ~200-500 ppm (so Kconfig).
+
+    config FLOW_DRIFT_RESIDUAL_PPM
+        int "Deriva: incerteza residual apos convergencia (ppm)"
+        range 50 50000
+        default 3000
+        depends on FLOW_MESH_MODE
+        help
+            Piso da incerteza (variacao termica entre resyncs). Define a guarda
+            de regime: guarda ~= residual_ppm x RESYNC_PERIOD (3000 ppm x 3 h
+            ~= 32 s; com cristal cai p/ ~segundos).
+
+    config FLOW_HOP_JITTER_MS
+        int "Guarda: margem por salto da cascata (ms)"
+        range 0 30000
+        default 2000
+        depends on FLOW_MESH_MODE
+        help
+            O burst do pai comeca com atraso variavel (captura + processamento)
+            em relacao ao do avo; esta margem por rank cobre esse jitter.
+
+    # --- Recuperacao ---
+    config FLOW_SCAN_AFTER_MISSES
+        int "Fallback: misses consecutivos ate entrar em SCAN"
+        range 1 20
+        default 3
+        depends on FLOW_MESH_MODE
+
+    config FLOW_SCAN_LISTEN_MS
+        int "Fallback/cold boot: duracao da escuta SCAN (ms)"
+        range 1000 600000
+        default 45000
+        depends on FLOW_MESH_MODE
+        help
+            Deve exceder FLOW_DISCOVERY_PERIOD_S + burst p/ garantir captura.
+
+    config FLOW_REBROADCAST_COPIES
+        int "Repasse: copias do beacon/dado por burst de repasse"
+        range 1 20
+        default 3
+        depends on FLOW_MESH_MODE
+
+    config FLOW_REBROADCAST_SPACING_MS
+        int "Repasse: espacamento entre copias (ms)"
+        range 10 5000
+        default 400
+        depends on FLOW_MESH_MODE
+
+    # --- Operacao a bateria ---
+    config FLOW_SUBROOT_DEEP_SLEEP
+        bool "Subroot: deep sleep agendado (producao)"
+        default n
+        depends on FLOW_MESH_MODE && FLOW_ROLE_SUBROOT
+        help
+            Subroot dorme entre janelas de sync/coleta (E220 em sleep via
+            M0/M1 + hold). Exclui FLOW_SUBROOT_LIGHT_SLEEP/SELF_TEST (bancada).
+
+    config FLOW_STAY_AWAKE_GPIO
+        int "Escape hatch: GPIO que segura o no acordado no boot (-1 desliga)"
+        range -1 48
+        default 9
+        depends on FLOW_MESH_MODE
+        help
+            O USB-JTAG do ESP32-C6 some em deep sleep. Segurando este pino em
+            nivel BAIXO durante o boot (GPIO9 = botao BOOT), o no fica acordado
+            indefinidamente para regravacao.
+
+    config FLOW_COLLECT_WINDOW_MS
+        int "Coleta: duracao da janela de convergecast (ms)"
+        range 100 600000
+        default 15000
+        depends on FLOW_MESH_MODE
+
+    config FLOW_N_RETRIES
+        int "Confiabilidade: tentativas por salto"
+        range 0 10
+        default 3
+        depends on FLOW_MESH_MODE
+
+    config FLOW_RETRY_JITTER_MS
+        int "Confiabilidade: jitter maximo do backoff (ms)"
+        range 0 5000
+        default 200
+        depends on FLOW_MESH_MODE
+
+    config FLOW_BUFFER_DAYS
+        int "Store-and-forward: dias de leitura a reter"
+        range 1 30
+        default 1
+        depends on FLOW_MESH_MODE
+
+    config FLOW_MAX_RETRIES_TOTAL
+        int "Store-and-forward: descartar pacote apos N falhas totais"
+        range 1 50
+        default 5
+        depends on FLOW_MESH_MODE
+
+    config FLOW_CRYPTO_ENABLE
+        bool "Criptografia AES-GCM do payload (app-layer, ESP-NOW + LoRa)"
+        default n
+        depends on FLOW_MESH_MODE
+        help
+            Cifra/autentica o corpo dos quadros na aplicacao (mbedtls), uniforme
+            nos dois radios. Requer chave de rede compartilhada.
+
+    config FLOW_CRYPTO_KEY_HEX
+        string "Chave de rede AES-128 (32 hex chars = 16 bytes)"
+        default "000102030405060708090A0B0C0D0E0F"
+        depends on FLOW_CRYPTO_ENABLE
+
+    config FLOW_TEST_ESPNOW_BEACON_ORIGIN
+        bool "TESTE: meter atua como origem de BEACON por ESP-NOW (simula root)"
+        default n
+        depends on FLOW_MESH_MODE && FLOW_ROLE_METER
+        help
+            Apenas para teste entre meters, SEM root/subroot. O meter fica acordado
+            emitindo BEACON (rank 0) por ESP-NOW. Os demais meters (com esta opcao
+            DESLIGADA) rodam o ciclo normal e descobrem este como pai. Nunca usar em
+            producao (gasta bateria por ficar acordado).
+
 endmenu
 
 menu "EBYTE E220 LoRa Radio"

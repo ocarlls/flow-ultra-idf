@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "esp_event.h"
+#include "esp_idf_version.h"
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "esp_now.h"
@@ -53,11 +54,19 @@ static QueueHandle_t s_tx_queue = NULL;
 // ===========================================================================
 // Callbacks ESP-NOW
 // ===========================================================================
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 5, 0)
 static void on_espnow_send(const wifi_tx_info_t *tx_info, esp_now_send_status_t status)
 {
     (void)tx_info;
     (void)status;
 }
+#else
+static void on_espnow_send(const uint8_t *mac_addr, esp_now_send_status_t status)
+{
+    (void)mac_addr;
+    (void)status;
+}
+#endif
 
 // Chamado quando o radio capta um pacote durante a janela de escuta. NAO
 // bloquear aqui: valida, deduplica e defere o relay para a task principal.

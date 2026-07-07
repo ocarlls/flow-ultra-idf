@@ -18,8 +18,8 @@ static const char *TAG = "E220";
 #define E220_TASK_PRIO 10
 
 /* AUX timings (ms) */
-#define E220_AUX_TIMEOUT_MS 1000
-#define E220_MODE_SETTLE_MS 10
+#define E220_AUX_TIMEOUT_MS 1500
+#define E220_MODE_SETTLE_MS 50
 /* Gap de idle da UART usado p/ delimitar 1 pacote em modo transparente */
 #define E220_RX_GAP_MS 20
 
@@ -27,8 +27,8 @@ static const char *TAG = "E220";
 typedef enum {
     E220_MODE_NORMAL = 0,   /* M0=0 M1=0 : TX/RX transparente */
     E220_MODE_WOR_TX = 1,   /* M0=1 M1=0 : WOR transmissor */
-    E220_MODE_WOR_RX = 2,   /* M0=0 M1=1 : WOR receptor (tambem usado p/ config) */
-    E220_MODE_CONFIG = 3,   /* M0=0 M1=1 : modo de configuracao (deep sleep/config) */
+    E220_MODE_WOR_RX = 2,   /* M0=0 M1=1 : modo 2 = WOR receptor */
+    E220_MODE_CONFIG = 3,   /* M0=1 M1=1 : modo 3 = deep sleep/configuracao (registradores) */
 } e220_mode_t;
 
 typedef struct {
@@ -89,11 +89,10 @@ static esp_err_t e220_wait_aux_high(int timeout_ms)
         vTaskDelay(pdMS_TO_TICKS(E220_MODE_SETTLE_MS));
         return ESP_OK; /* sem AUX: usa atraso fixo */
     }
-    const int64_t step_ms = 2;
     int waited = 0;
     while (gpio_get_level(s_ctx.cfg.pin_aux) == 0) {
-        vTaskDelay(pdMS_TO_TICKS(step_ms));
-        waited += step_ms;
+        vTaskDelay(pdMS_TO_TICKS(2));
+        waited += 2;
         if (waited >= timeout_ms) {
             return ESP_ERR_TIMEOUT;
         }
@@ -103,17 +102,32 @@ static esp_err_t e220_wait_aux_high(int timeout_ms)
     return ESP_OK;
 }
 
-static esp_err_t e220_set_mode(e220_mode_t mode)
+/* Escreve M0/M1 e SEGURA os niveis com gpio_hold: com PM_SLP_DISABLE_GPIO, o
+ * auto light sleep desliga os GPIOs e os pull-ups internos do E220 puxariam
+ * M0/M1 p/ alto (modo sleep) no meio de uma escuta. O hold congela o nivel em
+ * light E deep sleep. */
+static esp_err_t e220_write_mode_pins(int m0, int m1)
 {
-    int m0 = (mode == E220_MODE_WOR_TX) ? 1 : 0;
-    int m1 = (mode == E220_MODE_WOR_RX || mode == E220_MODE_CONFIG) ? 1 : 0;
-
     if (s_ctx.cfg.pin_m0 >= 0) {
+        (void)gpio_hold_dis(s_ctx.cfg.pin_m0);
         ESP_RETURN_ON_ERROR(gpio_set_level(s_ctx.cfg.pin_m0, m0), TAG, "set M0");
+        (void)gpio_hold_en(s_ctx.cfg.pin_m0);
     }
     if (s_ctx.cfg.pin_m1 >= 0) {
+        (void)gpio_hold_dis(s_ctx.cfg.pin_m1);
         ESP_RETURN_ON_ERROR(gpio_set_level(s_ctx.cfg.pin_m1, m1), TAG, "set M1");
+        (void)gpio_hold_en(s_ctx.cfg.pin_m1);
     }
+    return ESP_OK;
+}
+
+static esp_err_t e220_set_mode(e220_mode_t mode)
+{
+    /* M0/M1 por modo (manual pg 11): 0=normal(0,0) 1=WOR_TX(1,0) 2=WOR_RX(0,1) 3=config(1,1) */
+    int m0 = (mode == E220_MODE_WOR_TX || mode == E220_MODE_CONFIG) ? 1 : 0;
+    int m1 = (mode == E220_MODE_WOR_RX || mode == E220_MODE_CONFIG) ? 1 : 0;
+
+    ESP_RETURN_ON_ERROR(e220_write_mode_pins(m0, m1), TAG, "modo M0/M1");
     vTaskDelay(pdMS_TO_TICKS(E220_MODE_SETTLE_MS));
     return e220_wait_aux_high(E220_AUX_TIMEOUT_MS);
 }
@@ -136,26 +150,72 @@ static esp_err_t e220_write_config(void)
                              (c->fixed_mode ? 0x40 : 0x00) |
                              (e220_wor_code(c->wor_period_ms) & 0x07));
 
+    int aux_before = (c->pin_aux >= 0) ? gpio_get_level(c->pin_aux) : -1;
+    ESP_LOGW(TAG, "Config diag: AUX=%d antes do modo config (M0=%d M1=%d)",
+             aux_before, c->pin_m0, c->pin_m1);
+
     ESP_RETURN_ON_ERROR(e220_set_mode(E220_MODE_CONFIG), TAG, "entrar config");
 
+    int aux_after = (c->pin_aux >= 0) ? gpio_get_level(c->pin_aux) : -1;
+    ESP_LOGW(TAG, "Config diag: AUX=%d apos modo config (M0=1 M1=1 definidos)",
+             aux_after);
+
+    /* O modo de configuracao do E220 SEMPRE usa 9600 8N1, independente do baud de
+     * operacao (manual pg 13). A UART ja esta em 8N1 (init); aqui ajustamos so o
+     * baud para 9600 durante a troca de comandos e restauramos no fim. Apos sair
+     * da config o modulo opera no baud gravado no REG0 (= c->baud). */
+    const bool baud_switched = (c->baud != 9600);
+    if (baud_switched) {
+        (void)uart_set_baudrate(c->uart_port, 9600);
+    }
+
     uint8_t cmd[9] = {0xC0, 0x00, 0x06, addh, addl, reg0, reg1, reg2, reg3};
+    ESP_LOGW(TAG, "Config diag: enviando cmd [%02X %02X %02X %02X %02X %02X %02X %02X %02X]",
+             cmd[0], cmd[1], cmd[2], cmd[3], cmd[4], cmd[5], cmd[6], cmd[7], cmd[8]);
     uart_flush(c->uart_port);
     int w = uart_write_bytes(c->uart_port, (const char *)cmd, sizeof(cmd));
+    ESP_LOGW(TAG, "Config diag: uart_write_bytes retornou %d (esperado 9)", w);
+
+    esp_err_t result;
     if (w != (int)sizeof(cmd)) {
-        return ESP_FAIL;
+        result = ESP_FAIL;
+    } else {
+        (void)uart_wait_tx_done(c->uart_port, pdMS_TO_TICKS(200));
+        uint8_t resp[9] = {0};
+        int r = uart_read_bytes(c->uart_port, resp, sizeof(resp), pdMS_TO_TICKS(500));
+        ESP_LOGW(TAG, "Config diag: uart_read_bytes retornou %d bytes", r);
+        for (int i = 0; i < r && i < 9; i++) {
+            ESP_LOGW(TAG, "  resp[%d]=0x%02X", i, resp[i]);
+        }
+        if (r >= 4 && resp[0] == 0xC1) {
+            if (r >= 9) {
+                ESP_LOGI(TAG, "Config OK (lido): ADDH=%02X ADDL=%02X REG0=%02X REG1=%02X REG2=%02X REG3=%02X",
+                         resp[3], resp[4], resp[5], resp[6], resp[7], resp[8]);
+            } else {
+                ESP_LOGI(TAG, "Config aceita (resposta curta r=%d)", r);
+            }
+            result = ESP_OK;
+        } else {
+            ESP_LOGE(TAG, "Resposta de config inesperada (r=%d, byte0=0x%02X)",
+                     r, r > 0 ? resp[0] : 0);
+            result = ESP_ERR_INVALID_RESPONSE;
+        }
     }
-    (void)uart_wait_tx_done(c->uart_port, pdMS_TO_TICKS(200));
 
-    uint8_t resp[9] = {0};
-    int r = uart_read_bytes(c->uart_port, resp, sizeof(resp), pdMS_TO_TICKS(500));
-    if (r >= 4 && resp[0] == 0xC1) {
-        ESP_LOGI(TAG, "Config OK: ADDH=%02X ADDL=%02X REG0=%02X REG1=%02X REG2=%02X REG3=%02X",
-                 resp[3], resp[4], resp[5 % r], reg1, reg2, reg3);
-        return ESP_OK;
+    /* Restaura o baud de operacao para o RX/TX normal subsequente. */
+    if (baud_switched) {
+        (void)uart_set_baudrate(c->uart_port, c->baud);
     }
-
-    ESP_LOGE(TAG, "Resposta de config inesperada (r=%d, byte0=0x%02X)", r, r > 0 ? resp[0] : 0);
-    return ESP_ERR_INVALID_RESPONSE;
+    /* Aguarda AUX alto apos a transacao: o modulo pode estar ocupado
+     * processando o comando de config. Sem esta espera, a transicao para
+     * modo normal logo em seguida pode falhar (AUX ainda baixo). */
+    if (result == ESP_OK) {
+        esp_err_t aux_err = e220_wait_aux_high(E220_AUX_TIMEOUT_MS);
+        if (aux_err != ESP_OK) {
+            ESP_LOGW(TAG, "AUX nao subiu apos config (%s)", esp_err_to_name(aux_err));
+        }
+    }
+    return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -234,16 +294,20 @@ esp_err_t e220_lora_init(const e220_lora_config_t *config)
         return ESP_ERR_NO_MEM;
     }
 
-    /* GPIO de modo (saidas) e AUX (entrada). */
+    /* GPIO de modo (saidas) e AUX (entrada). Solta holds de um deep sleep
+     * anterior (prepare_deep_sleep) antes de reconfigurar. */
     uint64_t out_mask = 0;
     if (config->pin_m0 >= 0) out_mask |= (1ULL << config->pin_m0);
     if (config->pin_m1 >= 0) out_mask |= (1ULL << config->pin_m1);
+    if (config->pin_m0 >= 0) (void)gpio_hold_dis(config->pin_m0);
+    if (config->pin_m1 >= 0) (void)gpio_hold_dis(config->pin_m1);
     if (out_mask) {
         gpio_config_t oc = {.pin_bit_mask = out_mask, .mode = GPIO_MODE_OUTPUT};
         ESP_RETURN_ON_ERROR(gpio_config(&oc), TAG, "gpio M0/M1");
     }
     if (config->pin_aux >= 0) {
-        gpio_config_t ic = {.pin_bit_mask = (1ULL << config->pin_aux), .mode = GPIO_MODE_INPUT};
+        gpio_config_t ic = {.pin_bit_mask = (1ULL << config->pin_aux), .mode = GPIO_MODE_INPUT,
+                            .pull_up_en = GPIO_PULLUP_ENABLE};
         ESP_RETURN_ON_ERROR(gpio_config(&ic), TAG, "gpio AUX");
     }
 
@@ -263,12 +327,33 @@ esp_err_t e220_lora_init(const e220_lora_config_t *config)
                                      UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE),
                         TAG, "uart pins");
 
-    /* Grava configuracao e volta ao modo normal. */
-    esp_err_t err = e220_write_config();
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "Falha na config inicial (%s) — seguindo em modo normal", esp_err_to_name(err));
+    /* Grava configuracao (pulavel em re-wake: registradores sao nao-volateis)
+     * e volta ao modo normal. */
+    if (config->skip_radio_config) {
+        ESP_LOGI(TAG, "Config de registradores pulada (re-wake; config e nao-volatil)");
+    } else {
+        esp_err_t err = e220_write_config();
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "Falha na config inicial (%s) — seguindo em modo normal", esp_err_to_name(err));
+        }
+        /* Aguarda o modulo terminar de gravar os registradores nao-volateis
+         * antes de trocar o modo. Sem esta pausa a transicao pode falhar. */
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
-    ESP_RETURN_ON_ERROR(e220_set_mode(E220_MODE_NORMAL), TAG, "modo normal");
+    /* Entrada em RX e o degrau de corrente do modulo: um sag transiente da
+     * fonte pode segurar o AUX baixo. Tenta 2x; se falhar, deixa o radio em
+     * SLEEP (M0=M1=1) para nao drenar ~12 mA enquanto o chamador decide. */
+    esp_err_t mode_err = e220_set_mode(E220_MODE_NORMAL);
+    if (mode_err != ESP_OK) {
+        ESP_LOGW(TAG, "AUX nao subiu no modo normal (%s); re-tentando", esp_err_to_name(mode_err));
+        vTaskDelay(pdMS_TO_TICKS(250));
+        mode_err = e220_set_mode(E220_MODE_NORMAL);
+    }
+    if (mode_err != ESP_OK) {
+        (void)e220_write_mode_pins(1, 1); /* radio em sleep, pinos em hold */
+        ESP_LOGE(TAG, "modo normal falhou (%s); radio deixado em sleep", esp_err_to_name(mode_err));
+        return mode_err;
+    }
 
     s_ctx.stop = false;
     if (xTaskCreate(e220_rx_task, "e220_rx", E220_TASK_STACK, NULL, E220_TASK_PRIO, &s_ctx.rx_task) != pdPASS) {
@@ -315,6 +400,40 @@ esp_err_t e220_lora_start_rx_continuous(void)
     }
     /* Em modo transparente o E220 ja recebe continuamente em modo normal. */
     return e220_set_mode(E220_MODE_NORMAL);
+}
+
+esp_err_t e220_lora_sleep(void)
+{
+    if (!s_ctx.initialized) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    /* M0=M1=1 = modo 3 (sleep/config): radio desliga RX/TX, registradores
+     * retidos, ~2 uA. Nao espera AUX (em sleep ele pode ficar baixo). */
+    ESP_RETURN_ON_ERROR(e220_write_mode_pins(1, 1), TAG, "sleep M0/M1");
+    vTaskDelay(pdMS_TO_TICKS(E220_MODE_SETTLE_MS));
+    return ESP_OK;
+}
+
+esp_err_t e220_lora_prepare_deep_sleep(void)
+{
+    esp_err_t err = e220_lora_sleep();
+    if (err != ESP_OK) {
+        return err;
+    }
+    /* Congela M0/M1 em nivel alto atraves do deep sleep do ESP; sem isso os
+     * pinos flutuam e o E220 pode voltar a RX continuo (~10-12 mA). */
+    if (s_ctx.cfg.pin_m0 >= 0) {
+        ESP_RETURN_ON_ERROR(gpio_hold_en(s_ctx.cfg.pin_m0), TAG, "hold M0");
+    }
+    if (s_ctx.cfg.pin_m1 >= 0) {
+        ESP_RETURN_ON_ERROR(gpio_hold_en(s_ctx.cfg.pin_m1), TAG, "hold M1");
+    }
+#if SOC_GPIO_SUPPORT_HOLD_IO_IN_DSLP && !SOC_GPIO_SUPPORT_HOLD_SINGLE_IO_IN_DSLP
+    /* Em chips sem hold individual em deep sleep (ex.: ESP32 classico) o hold
+     * global precisa ser armado; no C6 o gpio_hold_en por pino ja persiste. */
+    gpio_deep_sleep_hold_en();
+#endif
+    return ESP_OK;
 }
 
 esp_err_t e220_lora_transmit(const uint8_t *payload, size_t payload_len)

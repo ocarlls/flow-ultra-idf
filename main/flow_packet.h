@@ -16,6 +16,7 @@ typedef enum {
     FLOW_PKT_TYPE_METER_DATA = 1,
     FLOW_PKT_TYPE_ACK = 2,
     FLOW_PKT_TYPE_ROUTE = 3,
+    FLOW_PKT_TYPE_BEACON = 4,
 } flow_packet_type_t;
 
 typedef struct __attribute__((packed)) {
@@ -91,6 +92,67 @@ static inline void flow_packet_init_empty(flow_packet_t *pkt)
     pkt->espnow_rssi = INT8_MIN;
     pkt->lora_rssi = INT8_MIN;
     pkt->lora_snr = INT8_MIN;
+}
+
+/* ===========================================================================
+ * BEACON — sincronia de tempo + descoberta de pai (gradiente por rank).
+ * Difundido do ROOT (rank 0) para fora; cada node rebroadcasta com rank+1.
+ * Estrutura compacta e separada do flow_packet_t (que é o quadro de dados).
+ * =========================================================================== */
+typedef struct __attribute__((packed)) {
+    uint16_t magic;               // 0x464C ("FL")
+    uint8_t  version;             // protocol version = 1
+    uint8_t  type;                // = FLOW_PKT_TYPE_BEACON (4)
+    uint8_t  root_id[6];          // MAC do root (raiz da árvore)
+    uint8_t  sender_id[6];        // MAC do node que (re)transmitiu este beacon (pai imediato)
+    uint8_t  hop_from_root;       // rank: 0 no root, +1 a cada salto
+    uint8_t  reserved;            // alinhamento/futuro
+    uint32_t sync_seq;            // contador de sessões de sync (monotônico do root)
+    int64_t  root_epoch_ms;       // tempo do root em ms (âncora p/ alinhar relógio)
+    uint32_t next_collect_in_ms;  // ms até a próxima janela de coleta (16:30)
+    uint32_t next_sync_in_ms;     // ms até o próximo sync
+    uint32_t crc32;               // CRC32 de todos os campos acima
+} flow_beacon_t;
+
+static inline bool flow_beacon_header_ok(const flow_beacon_t *b)
+{
+    return (b != NULL) && (b->magic == FLOW_PACKET_MAGIC) &&
+           (b->version == FLOW_PACKET_VERSION) && (b->type == FLOW_PKT_TYPE_BEACON);
+}
+
+static inline uint32_t flow_beacon_compute_crc32(const flow_beacon_t *b)
+{
+    if (b == NULL) {
+        return 0U;
+    }
+    return flow_crc32_ieee((const uint8_t *)b, offsetof(flow_beacon_t, crc32));
+}
+
+static inline bool flow_beacon_validate_crc32(const flow_beacon_t *b)
+{
+    if (!flow_beacon_header_ok(b)) {
+        return false;
+    }
+    return b->crc32 == flow_beacon_compute_crc32(b);
+}
+
+static inline void flow_beacon_update_crc32(flow_beacon_t *b)
+{
+    if (b == NULL) {
+        return;
+    }
+    b->crc32 = flow_beacon_compute_crc32(b);
+}
+
+static inline void flow_beacon_init_empty(flow_beacon_t *b)
+{
+    if (b == NULL) {
+        return;
+    }
+    memset(b, 0, sizeof(*b));
+    b->magic = FLOW_PACKET_MAGIC;
+    b->version = FLOW_PACKET_VERSION;
+    b->type = FLOW_PKT_TYPE_BEACON;
 }
 
 #ifdef __cplusplus

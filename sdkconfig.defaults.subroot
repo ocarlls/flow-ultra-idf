@@ -1,0 +1,6 @@
+# =============================================================================
+# Role: SUBROOT — ESP-NOW (meters) + LoRa (root), deep sleep agendado
+# =============================================================================
+CONFIG_FLOW_MESH_MODE=y
+CONFIG_FLOW_ROLE_SUBROOT=y
+CONFIG_FLOW_SUBROOT_DEEP_SLEEP=y

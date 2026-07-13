@@ -1,0 +1,10 @@
+# =============================================================================
+# Role: METER — somente ESP-NOW, deep sleep agendado, dados sinteticos
+# =============================================================================
+CONFIG_FLOW_MESH_MODE=y
+CONFIG_FLOW_ROLE_METER=y
+
+# IMPORTANTE: desabilitar METER_TX_TEST (default=y) para usar o caminho de
+# producao com deep sleep + beacon sync + origem de dados sinteticos.
+# Com METER_TX_TEST=y, o meter vira um relay em light sleep (bancada de consumo).
+CONFIG_FLOW_METER_TX_TEST=n

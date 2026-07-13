@@ -22,6 +22,20 @@
 /* Sub-pacote maximo do E220 em modo transparente. */
 #define E220_LORA_MAX_PAYLOAD_LEN 200U
 
+/*
+ * Fiacao fixa do E220 na placa (esquematico U3 ESP32-C6-W-1-N8, conector J3):
+ *   GPIO12 -> RX LoRa (RXD do E220; TX do ESP)
+ *   GPIO13 -> TX LoRa (TXD do E220; RX do ESP)
+ *   GPIO18 -> M0 (saida)
+ *   GPIO19 -> M1 (saida)
+ *   GPIO11 -> AUX (entrada; busy=0/ready=1)
+ */
+#define E220_PIN_TX  12
+#define E220_PIN_RX  13
+#define E220_PIN_M0  18
+#define E220_PIN_M1  19
+#define E220_PIN_AUX 11
+
 typedef enum {
     E220_LORA_EVENT_NONE = 0,
     E220_LORA_EVENT_RX_DONE,

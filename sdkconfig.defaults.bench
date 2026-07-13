@@ -1,0 +1,28 @@
+# =============================================================================
+# Parametros de BANCADA — tempos encurtados para validacao rapida do protocolo
+# mesh agendado (sync, coleta, deep sleep).
+#
+# Uso: sobrepor ao sdkconfig.defaults base e ao defaults do role:
+#   idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.bench;sdkconfig.defaults.<role>" reconfigure build
+# =============================================================================
+
+# Re-sincronizacao a cada 2 min (producao: 3 h / 10800 s)
+CONFIG_FLOW_RESYNC_PERIOD_S=120
+
+# Coleta a cada 10 min (producao: 24 h / 86400 s)
+CONFIG_FLOW_COLLECT_PERIOD_S=600
+
+# Guarda maxima 30 s (producao: 120 s)
+CONFIG_FLOW_GUARD_MAX_MS=30000
+
+# Escuta SCAN 45 s (manter — > discovery period de 30 s)
+CONFIG_FLOW_SCAN_LISTEN_MS=45000
+
+# Janela de coleta 15 s (manter)
+CONFIG_FLOW_COLLECT_WINDOW_MS=15000
+
+# Burst de beacon 10 s (manter)
+CONFIG_FLOW_BEACON_BURST_MS=10000
+
+# Descoberta esparsa a cada 30 s (manter)
+CONFIG_FLOW_DISCOVERY_PERIOD_S=30

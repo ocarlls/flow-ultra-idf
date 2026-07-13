@@ -141,11 +141,11 @@ static esp_err_t init_lora_radio(void)
 {
     e220_lora_config_t config = {
         .uart_port = CONFIG_FLOW_E220_UART_PORT,
-        .pin_tx = CONFIG_FLOW_E220_PIN_TX,
-        .pin_rx = CONFIG_FLOW_E220_PIN_RX,
-        .pin_m0 = CONFIG_FLOW_E220_PIN_M0,
-        .pin_m1 = CONFIG_FLOW_E220_PIN_M1,
-        .pin_aux = CONFIG_FLOW_E220_PIN_AUX,
+        .pin_tx = E220_PIN_TX,
+        .pin_rx = E220_PIN_RX,
+        .pin_m0 = E220_PIN_M0,
+        .pin_m1 = E220_PIN_M1,
+        .pin_aux = E220_PIN_AUX,
         .baud = CONFIG_FLOW_E220_BAUD,
         .address = (uint16_t)CONFIG_FLOW_E220_ADDRESS,
         .channel = (uint8_t)CONFIG_FLOW_E220_CHANNEL,

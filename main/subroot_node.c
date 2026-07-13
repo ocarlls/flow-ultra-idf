@@ -440,11 +440,11 @@ static esp_err_t init_lora_radio_ex(bool skip_radio_config)
     e220_lora_config_t config = {
         .skip_radio_config = skip_radio_config,
         .uart_port = CONFIG_FLOW_E220_UART_PORT,
-        .pin_tx = CONFIG_FLOW_E220_PIN_TX,
-        .pin_rx = CONFIG_FLOW_E220_PIN_RX,
-        .pin_m0 = CONFIG_FLOW_E220_PIN_M0,
-        .pin_m1 = CONFIG_FLOW_E220_PIN_M1,
-        .pin_aux = CONFIG_FLOW_E220_PIN_AUX,
+        .pin_tx = E220_PIN_TX,
+        .pin_rx = E220_PIN_RX,
+        .pin_m0 = E220_PIN_M0,
+        .pin_m1 = E220_PIN_M1,
+        .pin_aux = E220_PIN_AUX,
         .baud = CONFIG_FLOW_E220_BAUD,
         .address = (uint16_t)CONFIG_FLOW_E220_ADDRESS,
         .channel = (uint8_t)CONFIG_FLOW_E220_CHANNEL,
@@ -528,7 +528,12 @@ RTC_DATA_ATTR static uint32_t     s_rtc_sync_after_collect_ms = 0;
 RTC_DATA_ATTR static flow_drift_t s_rtc_drift = {0};
 
 // Abaixo deste alvo nao vale pagar boot+reinit: espera acordado.
-#define FLOW_STAY_AWAKE_THRESHOLD_MS 30000
+// Break-even: acordar custa ~400 ms de boot @ ~30 mA (~3 uAh); ficar acordado
+// custa ~32 mA. Dormir compensa para qualquer intervalo > ~0,5 s, entao 2 s da
+// folga. NUNCA subir isto para dezenas de s: com resync curto (bancada) o no
+// nunca dormiria — ficaria 100% acordado (~32 mA) e a deriva nunca seria medida
+// (o esp_timer so zera no deep sleep).
+#define FLOW_STAY_AWAKE_THRESHOLD_MS 2000
 
 static bool s_wifi_up = false;
 

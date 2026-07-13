@@ -238,8 +238,8 @@ static void log_config_banner(const uint8_t self_mac[6])
              CONFIG_FLOW_E220_RSSI_BYTE ? "on" : "off");
     ESP_LOGW(TAG, "UART%d TX=%d RX=%d M0=%d M1=%d AUX=%d baud=%d",
              CONFIG_FLOW_E220_UART_PORT,
-             CONFIG_FLOW_E220_PIN_TX, CONFIG_FLOW_E220_PIN_RX,
-             CONFIG_FLOW_E220_PIN_M0, CONFIG_FLOW_E220_PIN_M1, CONFIG_FLOW_E220_PIN_AUX,
+             E220_PIN_TX, E220_PIN_RX,
+             E220_PIN_M0, E220_PIN_M1, E220_PIN_AUX,
              CONFIG_FLOW_E220_BAUD);
     ESP_LOGW(TAG, "========================================");
 }
@@ -274,11 +274,11 @@ static esp_err_t init_lora_radio(void)
 {
     e220_lora_config_t config = {
         .uart_port    = CONFIG_FLOW_E220_UART_PORT,
-        .pin_tx       = CONFIG_FLOW_E220_PIN_TX,
-        .pin_rx       = CONFIG_FLOW_E220_PIN_RX,
-        .pin_m0       = CONFIG_FLOW_E220_PIN_M0,
-        .pin_m1       = CONFIG_FLOW_E220_PIN_M1,
-        .pin_aux      = CONFIG_FLOW_E220_PIN_AUX,
+        .pin_tx       = E220_PIN_TX,
+        .pin_rx       = E220_PIN_RX,
+        .pin_m0       = E220_PIN_M0,
+        .pin_m1       = E220_PIN_M1,
+        .pin_aux      = E220_PIN_AUX,
         .baud         = CONFIG_FLOW_E220_BAUD,
         .address      = (uint16_t)CONFIG_FLOW_E220_ADDRESS,
         .channel      = (uint8_t)CONFIG_FLOW_E220_CHANNEL,

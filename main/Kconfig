@@ -335,7 +335,7 @@ endmenu
 
 menu "EBYTE E220 LoRa Radio"
 
-    comment "Pinos = -1 ate o modulo ser fiado. O driver rejeita pinos invalidos."
+    comment "Pinos do E220 sao fixos no codigo (E220_PIN_* em e220_lora.h)."
 
     config FLOW_E220_UART_PORT
         int "UART usada pelo E220 (0 = console no ESP32-C6; use 1)"
@@ -344,31 +344,6 @@ menu "EBYTE E220 LoRa Radio"
         help
             Porta UART dedicada ao E220. No ESP32-C6 a UART0 e o console de log,
             entao use UART1.
-
-    config FLOW_E220_PIN_TX
-        int "GPIO TX do ESP (-> RXD do E220)"
-        range -1 48
-        default -1
-
-    config FLOW_E220_PIN_RX
-        int "GPIO RX do ESP (<- TXD do E220)"
-        range -1 48
-        default -1
-
-    config FLOW_E220_PIN_M0
-        int "GPIO M0 (saida; bit0 de modo)"
-        range -1 48
-        default -1
-
-    config FLOW_E220_PIN_M1
-        int "GPIO M1 (saida; bit1 de modo)"
-        range -1 48
-        default -1
-
-    config FLOW_E220_PIN_AUX
-        int "GPIO AUX (entrada; busy=0/ready=1)"
-        range -1 48
-        default -1
 
     config FLOW_E220_BAUD
         int "Baud da UART (deve casar com o gravado no modulo)"

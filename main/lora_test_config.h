@@ -35,27 +35,12 @@
 
 /*
  * Fallbacks dos simbolos do modulo EBYTE E220 (caso o menu Kconfig nao esteja
- * presente em um dado build). Pinos = -1 (invalidos) ate o hardware ser fiado;
- * o driver e220_lora rejeita pinos -1. Os bool ficam indefinidos quando "n" no
- * Kconfig, dai o #ifndef -> 0.
+ * presente em um dado build). Os pinos sao fixos no codigo (E220_PIN_* em
+ * e220_lora.h). Os bool ficam indefinidos quando "n" no Kconfig, dai o
+ * #ifndef -> 0.
  */
 #ifndef CONFIG_FLOW_E220_UART_PORT
 #define CONFIG_FLOW_E220_UART_PORT 1
-#endif
-#ifndef CONFIG_FLOW_E220_PIN_TX
-#define CONFIG_FLOW_E220_PIN_TX (-1)
-#endif
-#ifndef CONFIG_FLOW_E220_PIN_RX
-#define CONFIG_FLOW_E220_PIN_RX (-1)
-#endif
-#ifndef CONFIG_FLOW_E220_PIN_M0
-#define CONFIG_FLOW_E220_PIN_M0 (-1)
-#endif
-#ifndef CONFIG_FLOW_E220_PIN_M1
-#define CONFIG_FLOW_E220_PIN_M1 (-1)
-#endif
-#ifndef CONFIG_FLOW_E220_PIN_AUX
-#define CONFIG_FLOW_E220_PIN_AUX (-1)
 #endif
 #ifndef CONFIG_FLOW_E220_BAUD
 #define CONFIG_FLOW_E220_BAUD 9600

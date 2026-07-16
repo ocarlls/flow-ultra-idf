@@ -54,10 +54,15 @@ void flow_power_wifi_teardown(void)
 
 void flow_power_deep_sleep_ms(uint32_t sleep_ms)
 {
-    flow_power_wifi_teardown();
     if (sleep_ms < 1000U) {
         sleep_ms = 1000U;
     }
+#if CONFIG_FLOW_TEST_NO_SLEEP
+    ESP_LOGW(TAG, "TESTE: delay %lu ms (deep sleep desabilitado)", (unsigned long)sleep_ms);
+    vTaskDelay(pdMS_TO_TICKS(sleep_ms));
+    return;
+#endif
+    flow_power_wifi_teardown();
     ESP_LOGI(TAG, "Deep sleep por %lu ms", (unsigned long)sleep_ms);
     esp_sleep_enable_timer_wakeup((uint64_t)sleep_ms * 1000ULL);
     esp_deep_sleep_start();

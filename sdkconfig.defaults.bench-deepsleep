@@ -1,0 +1,33 @@
+# =============================================================================
+# Parametros de BANCADA com DEEP SLEEP habilitado
+# Timings maiores que bench normal, mas ainda observaveis em minutos.
+#
+# Uso: idf.py -D 'SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.defaults.bench-deepsleep;sdkconfig.defaults.<role>' reconfigure build
+# =============================================================================
+
+# Re-sincronizacao a cada 5 min (producao: 3 h / 10800 s)
+CONFIG_FLOW_RESYNC_PERIOD_S=300
+
+# Coleta a cada 15 min (producao: 24 h / 86400 s)
+CONFIG_FLOW_COLLECT_PERIOD_S=900
+
+# Guarda maxima 60 s (producao: 120 s)
+CONFIG_FLOW_GUARD_MAX_MS=60000
+
+# Escuta SCAN 45 s (manter — > discovery period de 30 s)
+CONFIG_FLOW_SCAN_LISTEN_MS=45000
+
+# Janela de coleta 15 s (manter)
+CONFIG_FLOW_COLLECT_WINDOW_MS=15000
+
+# Burst de beacon 10 s (manter)
+CONFIG_FLOW_BEACON_BURST_MS=10000
+
+# Descoberta esparsa a cada 30 s (manter)
+CONFIG_FLOW_DISCOVERY_PERIOD_S=30
+
+# Habilitar modo mesh
+CONFIG_FLOW_MESH_MODE=y
+
+# NAO habilitar NO_SLEEP — deep sleep real!
+# (removido intencionalmente)

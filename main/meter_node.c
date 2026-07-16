@@ -66,6 +66,8 @@ RTC_DATA_ATTR static uint8_t      s_rtc_misses = 0;
 RTC_DATA_ATTR static uint32_t     s_rtc_guard_ms = 0;
 RTC_DATA_ATTR static uint32_t     s_rtc_slept_ms = 0;
 RTC_DATA_ATTR static uint32_t     s_rtc_sync_after_collect_ms = 0;
+RTC_DATA_ATTR static int64_t      s_rtc_beacon_rx_ms = 0;
+RTC_DATA_ATTR static uint32_t     s_rtc_next_sync_ms = 0;
 RTC_DATA_ATTR static flow_drift_t s_rtc_drift = {0};
 RTC_DATA_ATTR static uint8_t      s_rtc_parent[6] = {0};
 RTC_DATA_ATTR static uint8_t      s_rtc_my_rank = FLOW_RANK_INVALID;
@@ -281,17 +283,19 @@ void meter_node_run(void)
 #else
     flow_power_stay_awake_hatch();
 
-    const uint8_t kind = s_rtc_cold ? WAKE_SCAN : s_rtc_kind;
+    (void)esp_read_mac(s_self_mac, ESP_MAC_WIFI_STA);
+    ESP_ERROR_CHECK(init_espnow());
+
     if (s_rtc_cold) {
         flow_drift_reset(&s_rtc_drift);
         s_rtc_misses = 0;
         nvs_load_sequence();
+        s_rtc_cold = false;
     }
-    s_rtc_cold = false;
-    s_rtc_wakes++;
 
-    (void)esp_read_mac(s_self_mac, ESP_MAC_WIFI_STA);
-    ESP_ERROR_CHECK(init_espnow());
+    while (1) {
+    const uint8_t kind = s_rtc_cold ? WAKE_SCAN : s_rtc_kind;
+    s_rtc_wakes++;
 
     const int64_t wake_at = esp_timer_get_time() / 1000LL;
     char pstr[18] = {0};
@@ -303,11 +307,10 @@ void meter_node_run(void)
     if (kind == WAKE_COLLECT) {
         // Relogio fresco (lead burst): transmite direto, sem escutar.
         meter_send_reading();
-        const int64_t elapsed_evt =
-            esp_timer_get_time() / 1000LL - wake_at - s_rtc_guard_ms;
-        uint32_t sync_in = s_rtc_sync_after_collect_ms;
-        sync_in = (sync_in > (uint32_t)elapsed_evt)
-                      ? sync_in - (uint32_t)elapsed_evt : 60000U;
+        // Calcular sync_in a partir do tempo absoluto da captura do beacon
+        const int64_t elapsed_since_beacon = esp_timer_get_time() / 1000LL - s_rtc_beacon_rx_ms;
+        uint32_t sync_in = (s_rtc_next_sync_ms > (uint32_t)elapsed_since_beacon)
+                              ? s_rtc_next_sync_ms - (uint32_t)elapsed_since_beacon : 60000U;
         meter_schedule_and_sleep(WAKE_SYNC, sync_in, 0);
     }
 
@@ -330,6 +333,8 @@ void meter_node_run(void)
         s_rtc_misses = 0;
         memcpy(s_rtc_parent, p.parent_id, 6);
         s_rtc_my_rank = p.my_rank;
+        s_rtc_beacon_rx_ms = rx_at;
+        s_rtc_next_sync_ms = p.next_sync_in_ms;
 
         mac_to_str(p.parent_id, pstr, sizeof(pstr));
         ESP_LOGI(TAG, "PAI=%s rank=%u rssi=%d next_sync=%lums next_collect=%lums",
@@ -365,6 +370,7 @@ void meter_node_run(void)
             meter_schedule_and_sleep(WAKE_SYNC, sync_in, 0);
         }
     }
+    } /* while(1) */
 #endif /* CONFIG_FLOW_TEST_ESPNOW_BEACON_ORIGIN */
 }
 

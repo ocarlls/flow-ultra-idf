@@ -81,7 +81,7 @@ void flow_drift_update(flow_drift_t *d, int32_t err_ms, uint32_t slept_ms)
     if (d->samples == 0) {
         d->ppm = sample_ppm;
     } else {
-        d->ppm += sample_ppm / 2;
+        d->ppm += (sample_ppm * 3) / 4;
     }
     if (d->ppm > FLOW_DRIFT_SAMPLE_MAX_PPM) {
         d->ppm = FLOW_DRIFT_SAMPLE_MAX_PPM;
@@ -115,11 +115,11 @@ uint32_t flow_drift_uncertainty_ppm(const flow_drift_t *d,
     if (d == NULL || d->samples == 0) {
         return init_ppm;
     }
-    uint32_t u = init_ppm;
-    for (uint8_t i = 0; i < d->samples && u > residual_ppm; ++i) {
-        u /= 2U;
-    }
-    return (u > residual_ppm) ? u : residual_ppm;
+    /* Apos convergencia, usa |ppm| real como incerteza (com piso residual). */
+    const uint32_t abs_ppm = (d->ppm < 0)
+                                 ? (uint32_t)(-d->ppm)
+                                 : (uint32_t)d->ppm;
+    return (abs_ppm > residual_ppm) ? abs_ppm : residual_ppm;
 }
 
 uint32_t flow_sync_compute_guard(uint32_t uncertainty_ppm, uint32_t sleep_ms,

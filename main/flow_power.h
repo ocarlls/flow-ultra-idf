@@ -23,7 +23,11 @@ void flow_power_wifi_teardown(void);
 // Teardown do Wi-Fi + timer wakeup + deep sleep. Nao retorna.
 // (O E220, quando presente, deve ser posto em sleep ANTES pelo chamador com
 // e220_lora_prepare_deep_sleep().)
+#if CONFIG_FLOW_TEST_NO_SLEEP
+void flow_power_deep_sleep_ms(uint32_t sleep_ms);
+#else
 void flow_power_deep_sleep_ms(uint32_t sleep_ms) __attribute__((noreturn));
+#endif
 
 #ifdef __cplusplus
 }

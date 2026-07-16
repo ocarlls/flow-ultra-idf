@@ -26,3 +26,9 @@ CONFIG_FLOW_BEACON_BURST_MS=10000
 
 # Descoberta esparsa a cada 30 s (manter)
 CONFIG_FLOW_DISCOVERY_PERIOD_S=30
+
+# Habilitar modo mesh
+CONFIG_FLOW_MESH_MODE=y
+
+# Desabilitar deep sleep para teste em bancada (mantem log serial)
+CONFIG_FLOW_TEST_NO_SLEEP=y

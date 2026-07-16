@@ -525,6 +525,8 @@ RTC_DATA_ATTR static uint8_t      s_rtc_misses = 0;
 RTC_DATA_ATTR static uint32_t     s_rtc_guard_ms = 0;
 RTC_DATA_ATTR static uint32_t     s_rtc_slept_ms = 0;
 RTC_DATA_ATTR static uint32_t     s_rtc_sync_after_collect_ms = 0;
+RTC_DATA_ATTR static int64_t      s_rtc_beacon_rx_ms = 0;
+RTC_DATA_ATTR static uint32_t     s_rtc_next_sync_ms = 0;
 RTC_DATA_ATTR static flow_drift_t s_rtc_drift = {0};
 
 // Abaixo deste alvo nao vale pagar boot+reinit: espera acordado.
@@ -576,8 +578,10 @@ static void subroot_schedule_and_sleep(uint8_t kind, uint32_t event_in_ms,
         vTaskDelay(pdMS_TO_TICKS(corrected));
         return;
     }
+#if !CONFIG_FLOW_TEST_NO_SLEEP
     (void)e220_lora_prepare_deep_sleep();
-    flow_power_deep_sleep_ms(corrected); // nao retorna
+#endif
+    flow_power_deep_sleep_ms(corrected); // delay se NO_SLEEP; deep sleep caso contrario
 }
 
 // Escuta LoRa ate captar um burst NOVO do pai (early-exit) ou estourar budget.
@@ -687,11 +691,10 @@ static void subroot_scheduled_run(void)
 
         if (kind == WAKE_COLLECT) {
             subroot_run_collect_window();
-            const int64_t elapsed_evt =
-                esp_timer_get_time() / 1000LL - wake_at - s_rtc_guard_ms;
-            uint32_t sync_in = s_rtc_sync_after_collect_ms;
-            sync_in = (sync_in > (uint32_t)elapsed_evt) ? sync_in - (uint32_t)elapsed_evt
-                                                        : CONFIG_FLOW_GUARD_MIN_MS;
+            const int64_t elapsed_since_beacon = esp_timer_get_time() / 1000LL - s_rtc_beacon_rx_ms;
+            uint32_t sync_in = (s_rtc_next_sync_ms > (uint32_t)elapsed_since_beacon)
+                                  ? s_rtc_next_sync_ms - (uint32_t)elapsed_since_beacon
+                                  : CONFIG_FLOW_GUARD_MIN_MS;
             subroot_schedule_and_sleep(WAKE_SYNC, sync_in, 0);
             kind = s_rtc_kind;
             continue;
@@ -714,6 +717,8 @@ static void subroot_scheduled_run(void)
                          (long)s_rtc_drift.ppm);
             }
             s_rtc_misses = 0;
+            s_rtc_beacon_rx_ms = rx_at;
+            s_rtc_next_sync_ms = b.next_sync_in_ms;
 
             subroot_ensure_wifi();
             subroot_rebroadcast_burst(&b, rx_at);

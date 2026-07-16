@@ -195,7 +195,7 @@ menu "Flow Mesh Network"
     config FLOW_GUARD_MIN_MS
         int "Guarda: piso (ms)"
         range 100 60000
-        default 2000
+        default 1000
         depends on FLOW_MESH_MODE
 
     config FLOW_GUARD_MAX_MS
@@ -207,7 +207,7 @@ menu "Flow Mesh Network"
     config FLOW_DRIFT_INIT_PPM
         int "Deriva: incerteza inicial do relogio (ppm)"
         range 100 100000
-        default 30000
+        default 8000
         depends on FLOW_MESH_MODE
         help
             30000 ppm = 3%, pior caso do RC interno sem calibracao termica.
@@ -216,7 +216,7 @@ menu "Flow Mesh Network"
     config FLOW_DRIFT_RESIDUAL_PPM
         int "Deriva: incerteza residual apos convergencia (ppm)"
         range 50 50000
-        default 3000
+        default 1000
         depends on FLOW_MESH_MODE
         help
             Piso da incerteza (variacao termica entre resyncs). Define a guarda
@@ -226,7 +226,7 @@ menu "Flow Mesh Network"
     config FLOW_HOP_JITTER_MS
         int "Guarda: margem por salto da cascata (ms)"
         range 0 30000
-        default 2000
+        default 500
         depends on FLOW_MESH_MODE
         help
             O burst do pai comeca com atraso variavel (captura + processamento)
@@ -277,6 +277,15 @@ menu "Flow Mesh Network"
             O USB-JTAG do ESP32-C6 some em deep sleep. Segurando este pino em
             nivel BAIXO durante o boot (GPIO9 = botao BOOT), o no fica acordado
             indefinidamente para regravacao.
+
+    config FLOW_TEST_NO_SLEEP
+        bool "TESTE: desabilitar deep sleep (delay em vez de sleep)"
+        default n
+        depends on FLOW_MESH_MODE
+        help
+            Substitui deep sleep por delay para testar o protocolo em bancada
+            sem perder a conexao serial. Ciclos de sync/coleta rodam normalmente,
+            mas o dispositivo fica acordado. Ativar tambem em SUBROOT e METER.
 
     config FLOW_COLLECT_WINDOW_MS
         int "Coleta: duracao da janela de convergecast (ms)"
